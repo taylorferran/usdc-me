@@ -1,13 +1,12 @@
-# USDC.me — Revised Architecture with Nanopayments
+# USDC.me — Architecture & User Flows (v4: Zero Web3 UX)
 
 ## What Changed and Why
 
-Circle's x402 Batching SDK introduces an off-chain spend layer on top of
-Gateway. Instead of settling every payment on-chain immediately, payments
-are signed as off-chain intents and batched for periodic settlement.
+### The Original Problem
 
-This transforms USDC.me from "cross-chain payment routing" into something
-closer to "onchain Venmo" — instant payments with deferred settlement.
+Circle's x402 Batching SDK enables off-chain spend intents with batch
+settlement on Arc via Gateway. Instead of every payment requiring an
+on-chain transaction, payments are signed intents that settle periodically.
 
 ```
 OLD MODEL                              NEW MODEL
@@ -25,797 +24,1080 @@ Every payment hits the chain:          Payments are off-chain signatures:
                                          Gas only on deposit + settle
 ```
 
+### The v4 Insight: Who Signs?
+
+Previous versions assumed senders would connect an external wallet
+(MetaMask etc.) and sign spend intents in the browser. This created
+a split UX: recipients had a Web2 experience (email/password) while
+senders needed Web3 knowledge (wallets, signing, gas).
+
+v4 eliminates this entirely. Every user gets a Circle developer-controlled
+wallet on Arc. The backend holds the keys. The backend signs x402 spend
+intents server-side. The user taps a button.
+
+```
+v3 (SPLIT MODEL)                       v4 (UNIFIED MODEL)
+════════════════                       ══════════════════
+
+Recipient:                             Everyone:
+  Email/password auth                    Email/password auth
+  Circle dev-controlled wallet           Circle dev-controlled wallet
+  on Arc                                 on Arc
+  Dashboard, withdraw                    Can send AND receive
+                                         Dashboard, QR code, withdraw
+Sender:
+  Connect MetaMask
+  Sign x402 intents in browser
+  No account on our platform
+
+Frontend needs:                        Frontend needs:
+  wagmi, viem, RainbowKit               React. That's it.
+  Wallet connect flow                    No web3 libraries.
+  Signing UX
+  Chain selection
+```
+
+### What the SDK Does vs What We Build
+
+```
+WHAT THE SDK HANDLES                 WHAT WE BUILD
+(don't rebuild this)                 (our actual codebase)
+════════════════════                 ════════════════════
+
+• EIP-3009 spend intent format       • Auth (email/password, JWT)
+• Signature validation                • Handle registry (@alice → wallet)
+• 402 payment negotiation             • Auto-funding (faucet → Gateway)
+• Gateway burn/attest/mint            • Payment routing (resolve handle,
+• Settlement submission                 trigger server-side signing)
+• Balance tracking (Gateway-level)    • Transaction log + dashboard
+• Nonce management                    • Settlement trigger + visibility
+                                      • Withdrawal UX
+                                      • QR codes + payment links
+                                      • WebSocket real-time updates
+```
+
+Key difference from v3: the SDK's `GatewayClient.pay()` is called
+**server-side** using Circle developer-controlled wallet keys. The
+SDK doesn't care who signs — it validates the cryptographic signature
+regardless of whether it was signed in a browser or on a server.
+
+---
 
 ## The Four Phases
 
-The x402 batching model has four phases. Here's how each maps to USDC.me:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  1. FUND            2. SPEND          3. SETTLE       4. WITHDRAW   │
+│  (on registration)  (off-chain)       (batched)       (on-chain)    │
+│                                                                      │
+│  User signs up.     User taps "Pay"   Backend calls   User taps     │
+│  Backend creates    Backend signs     SDK settle().   "Withdraw"    │
+│  wallet, funds      x402 intent       Gateway settles Backend calls │
+│  from faucet,       server-side.      on Arc.         SDK withdraw()│
+│  deposits into      Instant.                          Mints on any  │
+│  Gateway.           Gasless.                          chain.        │
+│  Automatic.         One tap.                                        │
+│                                                                      │
+│  SDK:               SDK:              SDK:            SDK:          │
+│  Circle Wallets     GatewayClient     BatchFacili-    GatewayClient │
+│  API + Gateway      .pay() called     tatorClient     .withdraw()   │
+│  Client             server-side       .settle()                     │
+│                                                                      │
+│  ┌──────┐          ┌──────┐          ┌──────┐       ┌──────┐      │
+│  │Sign  │──►Wallet │ "Pay"│──►Server │settle│──►    │"With-│──►   │
+│  │up    │  +Fund   │ tap  │  signs   │ ()   │ Arc   │draw" │ Any  │
+│  │email │  +Deposit│      │  intent  │      │       │ tap  │chain │
+│  └──────┘          └──────┘          └──────┘       └──────┘      │
+│                                                                      │
+│  User sees:        User sees:        User sees:     User sees:     │
+│  "Welcome!         "Paid! ✅"        "Settled ✅"    "Withdrawn ✅"  │
+│   Balance: $10"    (0.5s)            (badge on txs) (tx hash)      │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+
+### Phase 1: FUND (Automatic, On Registration)
+
+When a user signs up, the backend handles everything:
+1. Creates a Circle developer-controlled wallet on Arc Testnet
+2. Calls the Circle Faucet API to fund the wallet with testnet USDC
+3. Deposits that USDC into Gateway (0.5s finality on Arc)
+
+The user sees a loading screen, then "Welcome! Balance: $10.00."
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                  │
-│   1. DEPOSIT        2. SPEND          3. SETTLE    4. WITHDRAW  │
-│   (on-chain)        (off-chain)       (batched)    (on-chain)   │
-│                                                                  │
-│   Sender loads      Sender signs      Backend      Recipient    │
-│   USDC into         EIP-712 spend     batches      triggers     │
-│   Gateway from      intents to pay    intents &    settlement   │
-│   any chain.        recipients.       settles      & mints      │
-│   One-time.         Instant.          hourly.      on any chain.│
-│                     Gasless.                                     │
-│                                                                  │
-│   ┌──────┐         ┌──────┐          ┌──────┐     ┌──────┐     │
-│   │ USDC │──►Gate  │ Sign │──►Our    │ Batch│──►  │ Mint │──►  │
-│   │ on   │  way    │ only │  Backend │ all  │ Arc │ USDC │ Any │
-│   │ Base │  deposit│      │  ledger  │ pend │     │ on   │chain│
-│   └──────┘         └──────┘          └──────┘     └──────┘     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Phase 1: DEPOSIT (On-Chain, One-Time)
-
-The sender needs a Gateway balance before they can spend. They deposit USDC
-into the Gateway Wallet contract from whatever chain they're on.
-
-```
-Sender (on Base Sepolia)
-  │
-  │  1. approve(Gateway Wallet, $100)     ← on-chain tx
-  │  2. deposit(USDC, $100)               ← on-chain tx
-  │
-  │  ⏳ Wait for finality (~15 min Base, ~8s Avax, ~0.5s Arc)
+User signs up
   │
   ▼
-Gateway API now shows:
-  sender_address: 0xSender
-  unified_balance: $100.00
-  chain_deposits: { base-sepolia: $100 }
+Backend:
+  1. POST /wallets → Circle creates wallet on Arc
+     wallet_id: "w-123", address: "0xB2..."
+  
+  2. POST /faucet → $10 testnet USDC to 0xB2...
+     (Arc Testnet, near-instant)
+  
+  3. approve(Gateway, $10) + deposit($10)
+     → signed by backend using developer-controlled key
+     → 0.5s finality on Arc
+  
+  4. GatewayClient confirms balance: $10.00
+  
+  ▼
+User's dashboard:
+  Handle: @bob
+  Balance: $10.00
+  Ready to send and receive.
 ```
 
-This is the only time the sender interacts with the blockchain during their
-session. After this, everything is off-chain.
-
-For the demo: pre-deposit from Arc Testnet (0.5s finality) before going
-on stage. Sender starts with a loaded Gateway balance.
+For production, step 2 would be replaced by the user transferring USDC
+to their wallet address or buying via a fiat on-ramp. For testnet, the
+faucet is free and instant.
 
 
-### Phase 2: SPEND (Off-Chain, Instant, Gasless)
+### Phase 2: SPEND (Off-Chain, Instant, One Tap)
 
-When a sender pays @alice, they sign an EIP-712 typed data message — a
-"spend intent." This never goes on-chain. It's just a cryptographic
-promise: "I authorize $5 from my Gateway balance to go to Alice."
+When @bob pays @alice, the backend:
+1. Authenticates @bob via JWT
+2. Resolves @alice to her wallet address
+3. Signs an x402 spend intent using @bob's Circle wallet key (server-side)
+4. The SDK validates the intent
+5. Backend logs the transaction, credits Alice, notifies her via WebSocket
 
-```
-SPEND INTENT (EIP-712 Typed Data)
-═════════════════════════════════
+The user taps "Pay" and sees "Paid! ✅" in under a second.
 
-{
-  types: {
-    SpendIntent: [
-      { name: "sender",    type: "address" },
-      { name: "recipient", type: "address" },
-      { name: "amount",    type: "uint256" },
-      { name: "nonce",     type: "uint256" },
-      { name: "deadline",  type: "uint256" },
-    ]
-  },
-  domain: {
-    name: "USDC.me",
-    version: "1",
-    chainId: <gateway-chain-id>,
-  },
-  message: {
-    sender:    "0xSender...",
-    recipient: "0xAlice...",      // Alice's Arc wallet
-    amount:    5000000,           // $5.00 (6 decimals)
-    nonce:     42,                // prevents replay
-    deadline:  1709136000,        // expires in 1 hour
-  }
-}
-
-Sender signs this with their wallet → produces signature (65 bytes)
-No on-chain transaction. No gas. Instant.
-```
-
-Our backend validates the spend intent:
+The spend intent is a real EIP-3009 `TransferWithAuthorization` — a
+cryptographic commitment backed by @bob's Gateway deposit. The only
+difference from v3 is that the backend signs it instead of the browser.
 
 ```
-BACKEND VALIDATION
-══════════════════
+x402 SPEND (SERVER-SIDE)
+════════════════════════
 
-  Receive spend intent + signature from frontend
-  │
-  ├─ Recover signer from EIP-712 signature
-  │   → Must match sender address
-  │
-  ├─ Check sender's available balance
-  │   → Gateway balance minus sum of pending (unsettled) spends
-  │   → Must be >= spend amount
-  │
-  ├─ Check nonce
-  │   → Must be sender's next expected nonce
-  │   → Prevents replay attacks
-  │
-  ├─ Check deadline
-  │   → Must be in the future
-  │
-  ├─ If all checks pass:
-  │   → Store spend intent in our database
-  │   → Credit recipient's off-chain balance
-  │   → Debit sender's available balance
-  │   → Return success to frontend
-  │
-  └─ If any check fails:
-      → Reject, return error
+What happens when @bob taps "Pay @alice $5":
+
+  Frontend                        Backend                        SDK
+     │                               │                             │
+     │  POST /api/pay/@alice         │                             │
+     │  Auth: Bearer <jwt>           │                             │
+     │  {amount: 5}                  │                             │
+     │──────────────────────────────►│                             │
+     │                               │                             │
+     │                               │  1. JWT → this is @bob     │
+     │                               │  2. @alice → 0xA1...       │
+     │                               │  3. @bob balance: $10 ✓    │
+     │                               │                             │
+     │                               │  4. GatewayClient.pay({    │
+     │                               │       to: 0xA1...,         │
+     │                               │       amount: 5000000,     │
+     │                               │       signerKey: <bob's    │
+     │                               │         Circle wallet key> │
+     │                               │     })                     │
+     │                               │────────────────────────────►│
+     │                               │                             │
+     │                               │  Intent signed + validated  │
+     │                               │  (EIP-3009, backed by       │
+     │                               │   Gateway deposit)          │
+     │                               │◄────────────────────────────│
+     │                               │                             │
+     │                               │  5. Log transaction         │
+     │                               │  6. @bob:  $10 → $5        │
+     │                               │  7. @alice: $0 → $5        │
+     │                               │  8. WS push to Alice       │
+     │                               │                             │
+     │  {status: "paid",             │                             │
+     │   balance: 5}                 │                             │
+     │◄──────────────────────────────│                             │
+     │                               │                             │
+     │  "Paid @alice $5! ✅"         │                             │
+     │  (~0.5s total)                │                             │
 ```
 
-After validation, Alice sees her balance update in real-time. The money
-hasn't moved on-chain yet, but the spend intent is a cryptographically
-signed commitment backed by the sender's Gateway deposit.
+What makes this real (not just a database debit):
+- The spend intent is cryptographically signed with @bob's private key
+- The SDK validates the signature, checks nonce, verifies balance
+- The intent is backed by @bob's actual USDC deposit in Gateway
+- `BatchFacilitatorClient.settle()` can later settle this on-chain
+- This is the exact same x402 protocol as if @bob signed in MetaMask
+
+What the user sees: "Paid @alice $5! ✅"
+What actually happened: EIP-3009 TransferWithAuthorization signed and validated.
 
 
 ### Phase 3: SETTLE (Batched, Periodic)
 
-Settlement is when off-chain spend intents become on-chain reality. Our
-backend collects all pending spends and submits them to Gateway in a
-single batch.
+Backend calls `BatchFacilitatorClient.settle()`. The SDK handles all
+Gateway mechanics. We log the result and update transaction statuses.
 
 ```
-SETTLEMENT FLOW
-═══════════════
+SETTLEMENT
+══════════
 
-Our Backend                         Gateway API              Arc Testnet
-    │                                    │                       │
-    │  Collect all pending               │                       │
-    │  spend intents since               │                       │
-    │  last settlement:                  │                       │
-    │                                    │                       │
-    │  Intent 1: Sender→Alice  $5       │                       │
-    │  Intent 2: Sender→Bob    $3       │                       │
-    │  Intent 3: Carol→Alice   $12      │                       │
-    │  Intent 4: Dave→Bob      $7       │                       │
-    │  ─────────────────────────        │                       │
-    │  Total: $27                        │                       │
-    │                                    │                       │
-    │                                    │                       │
-    │  STEP 1: Net the transfers         │                       │
-    │                                    │                       │
-    │  Instead of 4 separate mints,      │                       │
-    │  we net by recipient:              │                       │
-    │                                    │                       │
-    │  Alice: $5 + $12 = $17            │                       │
-    │  Bob:   $3 + $7  = $10            │                       │
-    │  ────────────────────              │                       │
-    │  2 mints instead of 4              │                       │
-    │                                    │                       │
-    │                                    │                       │
-    │  STEP 2: Create burn intents       │                       │
-    │  for each sender's portion         │                       │
-    │                                    │                       │
-    │  Burn intent A: Sender burns $8    │                       │
-    │    (from Sender's Gateway balance) │                       │
-    │  Burn intent B: Carol burns $12    │                       │
-    │    (from Carol's Gateway balance)  │                       │
-    │  Burn intent C: Dave burns $7      │                       │
-    │    (from Dave's Gateway balance)   │                       │
-    │                                    │                       │
-    │  Submit to Gateway API             │                       │
-    │  POST /transfers (batch)           │                       │
-    │──────────────────────────────────►│                       │
-    │                                    │                       │
-    │  Receive attestations              │                       │
-    │◄──────────────────────────────────│                       │
-    │                                    │                       │
-    │                                    │                       │
-    │  STEP 3: Call gatewayMint()        │                       │
-    │  on Arc for each recipient         │                       │
-    │                                    │                       │
-    │  gatewayMint(attestation_A,        │                       │
-    │              Alice, $17)           │──────────────────────►│
-    │                                    │                       │
-    │  gatewayMint(attestation_B,        │                       │
-    │              Bob, $10)             │──────────────────────►│
-    │                                    │                       │
-    │                                    │   $17 minted to Alice │
-    │                                    │   $10 minted to Bob   │
-    │                                    │                       │
-    │  Mark all intents as settled       │                       │
-    │                                    │                       │
+ Our Code                   SDK                      Gateway / Arc
+  │                           │                            │
+  │  [Cron or "Settle Now"]   │                            │
+  │                           │                            │
+  │  BatchFacilitatorClient   │                            │
+  │  .settle()                │                            │
+  │──────────────────────────►│                            │
+  │                           │  SDK handles internally:   │
+  │                           │  • Collects pending        │
+  │                           │    spend intents           │
+  │                           │  • Submits batch to        │
+  │                           │    Gateway                 │
+  │                           │  • Gateway settles         │
+  │                           │    on Arc Testnet          │
+  │                           │───────────────────────────►│
+  │                           │                            │
+  │                           │  Settlement confirmed      │
+  │                           │◄───────────────────────────│
+  │                           │                            │
+  │  {txHash, settledCount,   │                            │
+  │   totalAmount}            │                            │
+  │◄──────────────────────────│                            │
+  │                           │                            │
+  │  OUR CODE:                │                            │
+  │  • Log to settlements DB  │                            │
+  │  • Mark transactions as   │                            │
+  │    "settled"              │                            │
+  │  • Update dashboards      │                            │
+  │  • Display:               │                            │
+  │    "5 intents → 1 tx ✅"  │                            │
 ```
 
-Settlement triggers:
-- **Hourly cron job** — settle everything automatically
-- **On-demand** — when a recipient requests withdrawal
-- **Threshold** — when pending amount exceeds $X
+**Demo moment:** Three rapid payments → "Settle Now" → "3 intents, 1 on-chain
+transaction on Arc." This is the visual proof of x402 batching and
+Arc-as-hub.
+
+We don't build: burn intent construction, attestation requests,
+gatewayMint() calls, netting logic. The SDK handles all of it.
+
+We do build: the trigger (cron + button), the logging, and the UI
+that shows the before/after netting ratio.
 
 
-### Phase 4: WITHDRAW (Recipient Gets USDC on Any Chain)
+### Phase 4: WITHDRAW (One Tap, Any Chain)
 
-When Alice wants actual USDC in her own wallet on any chain:
-
-```
-WITHDRAWAL FLOW
-═══════════════
-
-  Alice clicks "Withdraw $50 to Avalanche"
-  │
-  ├─ 1. Settle any unsettled intents for Alice
-  │     (triggers immediate batch settlement for her)
-  │
-  ├─ 2. Alice now has $50 USDC in her Arc wallet
-  │     (minted during settlement)
-  │
-  ├─ 3. Deposit Alice's $50 into Gateway on Arc
-  │     approve() + deposit() on Arc Testnet
-  │     (we control her wallet, so our backend signs)
-  │     ⏳ 0.5s Arc finality
-  │
-  ├─ 4. Sign burn intent:
-  │     source: Arc
-  │     dest: Avalanche Fuji
-  │     amount: $50
-  │     recipient: Alice's Avalanche address
-  │
-  ├─ 5. Submit to Gateway API → get attestation
-  │     (<500ms)
-  │
-  └─ 6. Call gatewayMint() on Avalanche Fuji
-        $50 USDC minted to Alice's external wallet
-
-  Total time: ~2-3 seconds (Arc finality + Gateway)
-```
-
-
-## Revised System Architecture
+User taps "Withdraw," picks a chain and amount. Backend calls
+`GatewayClient.withdraw()`. One SDK call.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           USDC.me SYSTEM (v2)                            │
-│                                                                          │
-│  ┌──────────────┐    ┌──────────────────────────┐    ┌───────────────┐  │
-│  │              │    │                           │    │               │  │
-│  │   Frontend   │    │   Backend (Facilitator)   │    │   Onchain     │  │
-│  │              │    │                           │    │               │  │
-│  │  • Pay page  │    │  ┌─────────────────────┐  │    │  Gateway      │  │
-│  │  • QR codes  │    │  │  Off-Chain Ledger    │  │    │  Contracts    │  │
-│  │  • Dashboard │    │  │                     │  │    │  (deposit,    │  │
-│  │  • Wallet    │◄──►│  │  sender balances    │  │◄──►│   mint)       │  │
-│  │    connect   │    │  │  recipient credits  │  │    │               │  │
-│  │  • EIP-712   │    │  │  pending intents    │  │    │  USDC Token   │  │
-│  │    signing   │    │  │  settled intents    │  │    │  Contracts    │  │
-│  │              │    │  └─────────────────────┘  │    │               │  │
-│  │              │    │                           │    │  Circle       │  │
-│  │              │    │  ┌─────────────────────┐  │    │  Wallets      │  │
-│  │              │    │  │  Settlement Engine   │  │    │  (Arc)        │  │
-│  │              │    │  │                     │  │    │               │  │
-│  │              │    │  │  • Hourly cron      │  │    │               │  │
-│  │              │    │  │  • On-demand        │  │    │               │  │
-│  │              │    │  │  • Net by recipient │  │    │               │  │
-│  │              │    │  │  • Batch burn+mint  │  │    │               │  │
-│  │              │    │  └─────────────────────┘  │    │               │  │
-│  │              │    │                           │    │               │  │
-│  └──────────────┘    └──────────────────────────┘    └───────────────┘  │
-│                                                                          │
-│         Off-chain                  Off-chain              On-chain       │
-│         (browser)                  (our server)           (blockchain)   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+WITHDRAWAL
+══════════
 
-
-## Revised User Flows
-
-### Flow 1: Registration (unchanged)
-
-Same as before. Create Circle Wallet on Arc, store handle mapping.
-
-
-### Flow 2: Sender Top-Up (New — replaces per-payment deposit)
-
-Before a sender can pay anyone, they need Gateway balance. This is like
-loading a prepaid account.
-
-```
- Sender                  Frontend               Backend              Onchain
-  │                         │                       │                   │
-  │  Opens usdc.me/@alice   │                       │                   │
-  │  Enters $50             │                       │                   │
-  │  Connects wallet (Base) │                       │                   │
-  │────────────────────────►│                       │                   │
-  │                         │                       │                   │
-  │                         │  Check: does sender   │                   │
-  │                         │  have Gateway balance? │                   │
-  │                         │──────────────────────►│                   │
-  │                         │                       │                   │
-  │                         │  "No balance. Sender  │                   │
-  │                         │   needs to deposit."  │                   │
-  │                         │◄──────────────────────│                   │
-  │                         │                       │                   │
-  │  "Top up your USDC.me   │                       │                   │
-  │   balance to pay        │                       │                   │
-  │   instantly. Deposit     │                       │                   │
-  │   $50+ USDC from Base." │                       │                   │
-  │◄────────────────────────│                       │                   │
-  │                         │                       │                   │
-  │  Signs approve + deposit│                       │                   │
-  │  on Base Sepolia        │                       │                   │
-  │─────────────────────────┼───────────────────────┼──────────────────►│
-  │                         │                       │                   │
-  │                         │                       │  ⏳ Finality wait │
-  │                         │                       │  (chain-dependent)│
-  │                         │                       │                   │
-  │                         │  Gateway API confirms │                   │
-  │                         │  balance: $50         │                   │
-  │                         │◄──────────────────────│                   │
-  │                         │                       │                   │
-  │  "Balance loaded!       │                       │                   │
-  │   You can now pay       │                       │                   │
-  │   anyone instantly."    │                       │                   │
-  │◄────────────────────────│                       │                   │
-```
-
-The UX decision: do we make the sender top up BEFORE paying, or inline
-during the first payment? For the hackathon, inline is better — show the
-deposit step as part of the payment flow if they have no balance.
-
-For repeat senders, they already have balance and skip straight to spend.
-
-
-### Flow 3: Instant Payment (The New Core Flow)
-
-Sender has Gateway balance. Pays @alice. No blockchain interaction.
-
-```
- Sender                  Frontend               Backend
+ @alice                  Frontend               Backend
   │                         │                       │
-  │  Opens usdc.me/@alice   │                       │
-  │  Enters $5              │                       │
+  │  Dashboard → Withdraw   │                       │
+  │  Amount: $20            │                       │
+  │  Chain: Avalanche       │                       │
+  │  Address: 0xMyAvax...   │                       │
+  │  Taps "Withdraw"        │                       │
   │────────────────────────►│                       │
-  │                         │                       │
-  │                         │  GET /user/alice      │
-  │                         │──────────────────────►│
-  │                         │  {wallet_address,     │
-  │                         │   handle: "alice"}    │
-  │                         │◄──────────────────────│
-  │                         │                       │
-  │                         │  Check sender's       │
-  │                         │  available balance    │
-  │                         │──────────────────────►│
-  │                         │  {available: $47.00}  │
-  │                         │◄──────────────────────│
-  │                         │                       │
-  │                         │                       │
-  │  Frontend constructs    │                       │
-  │  EIP-712 spend intent:  │                       │
-  │                         │                       │
-  │  {                      │                       │
-  │    sender: 0xSender     │                       │
-  │    recipient: 0xAlice   │                       │
-  │    amount: 5000000      │                       │
-  │    nonce: 7             │                       │
-  │    deadline: +1hr       │                       │
-  │  }                      │                       │
-  │                         │                       │
-  │  Wallet popup:          │                       │
-  │  "Sign message"         │                       │
-  │  (NOT a transaction)    │                       │
-  │                         │                       │
-  │  ✍️  Signs              │                       │
-  │  (instant, free)        │                       │
-  │─────────────────────────┤                       │
-  │                         │                       │
-  │                         │  POST /pay/alice      │
-  │                         │  {intent, signature}  │
+  │                         │  POST /api/withdraw   │
+  │                         │  Auth: Bearer <jwt>   │
   │                         │──────────────────────►│
   │                         │                       │
-  │                         │  Backend validates:   │
-  │                         │  ✓ Signature valid    │
-  │                         │  ✓ Balance sufficient │
-  │                         │  ✓ Nonce correct      │
-  │                         │  ✓ Not expired        │
+  │                         │  GatewayClient        │
+  │                         │  .withdraw(20, {      │
+  │                         │    chain: 'avaxFuji', │
+  │                         │    to: '0xMyAvax'     │
+  │                         │  })                   │
   │                         │                       │
-  │                         │  Update ledger:       │
-  │                         │  Sender: $47→$42      │
-  │                         │  Alice:  $17→$22      │
+  │                         │  SDK handles:          │
+  │                         │  • Settle if needed    │
+  │                         │  • Gateway transfer    │
+  │                         │  • Cross-chain mint    │
   │                         │                       │
-  │                         │  Store intent in DB   │
-  │                         │  (pending settlement) │
-  │                         │                       │
-  │                         │  {status: "success",  │
-  │                         │   new_balance: $42}   │
+  │                         │  {txHash, status}      │
   │                         │◄──────────────────────│
   │                         │                       │
-  │  "Paid @alice $5! ✅"   │                       │
-  │  Took: ~0.5 seconds     │                       │
+  │  "Withdrew $20 to       │                       │
+  │   Avalanche! ✅"        │                       │
+  │  tx: 0xdef...           │                       │
   │◄────────────────────────│                       │
-  │                         │                       │
-  │                         │  (Meanwhile, Alice's  │
-  │                         │   dashboard updates   │
-  │                         │   via WebSocket)      │
 ```
 
-**This is the demo moment.** Scan QR → sign one message → done.
-Sub-second. No gas. No chain selection. No finality wait.
+The user picks a chain from a dropdown. They don't need to understand
+what "cross-chain" means. They just want their money on Avalanche.
 
+Supported destination chains (testnet): Arc Testnet, Avalanche Fuji,
+Base Sepolia, Ethereum Sepolia, HyperEVM Testnet, Sei Atlantic,
+Solana Devnet, Sonic Testnet, World Chain Sepolia.
 
-### Flow 4: Batch Settlement (Backend Cron)
+---
 
-Runs hourly (or on-demand). Nobody sees this — it's backend housekeeping.
-
-```
- Settlement Engine            Gateway API              Arc Testnet
-  │                               │                        │
-  │  [CRON: every hour]           │                        │
-  │                               │                        │
-  │  Query DB for all intents     │                        │
-  │  with status = "pending"      │                        │
-  │                               │                        │
-  │  Found 47 intents:            │                        │
-  │  ├─ 12 senders               │                        │
-  │  ├─ 8 recipients              │                        │
-  │  └─ Total: $423.50           │                        │
-  │                               │                        │
-  │                               │                        │
-  │  NET BY RECIPIENT:            │                        │
-  │  ┌───────────────────────┐   │                        │
-  │  │ @alice:   $87.00      │   │                        │
-  │  │ @bob:     $142.50     │   │                        │
-  │  │ @carol:   $53.00      │   │                        │
-  │  │ @dave:    $95.00      │   │                        │
-  │  │ @eve:     $46.00      │   │                        │
-  │  │ ───────────────────── │   │                        │
-  │  │ Total:    $423.50     │   │                        │
-  │  └───────────────────────┘   │                        │
-  │                               │                        │
-  │  47 intents → 5 mints        │                        │
-  │  (massive gas savings)        │                        │
-  │                               │                        │
-  │                               │                        │
-  │  GROUP BY SENDER, create      │                        │
-  │  burn intents for each:       │                        │
-  │                               │                        │
-  │  POST /transfers (batch)      │                        │
-  │  [burn intent 1: sender A]    │                        │
-  │  [burn intent 2: sender B]    │                        │
-  │  [...]                        │                        │
-  │──────────────────────────────►│                        │
-  │                               │                        │
-  │  Attestations returned        │                        │
-  │◄──────────────────────────────│                        │
-  │                               │                        │
-  │  Call gatewayMint() × 5       │                        │
-  │  (one per recipient)          │                        │
-  │───────────────────────────────┼───────────────────────►│
-  │                               │                        │
-  │                               │  $87.00 → @alice       │
-  │                               │  $142.50 → @bob        │
-  │                               │  $53.00 → @carol       │
-  │                               │  $95.00 → @dave        │
-  │                               │  $46.00 → @eve         │
-  │                               │                        │
-  │  Mark all 47 intents          │                        │
-  │  as "settled"                 │                        │
-  │                               │                        │
-  │  Update DB balances           │                        │
-  │  (on-chain now matches        │                        │
-  │   off-chain ledger)           │                        │
-```
-
-
-### Flow 5: Withdrawal (On-Demand Settlement + Cross-Chain Mint)
-
-When Alice wants USDC on a specific chain:
+## System Architecture
 
 ```
- Alice                   Frontend               Backend             Onchain
+┌─────────────────────────────────────────────────────────────────────┐
+│                       USDC.me SYSTEM (v4)                            │
+│                                                                      │
+│  ┌─────────────┐    ┌───────────────────────────┐    ┌───────────┐  │
+│  │             │    │  Backend (Express + Node)  │    │           │  │
+│  │  Frontend   │    │                            │    │  Circle   │  │
+│  │  (React)    │    │  ┌──────────────────────┐  │    │  Services │  │
+│  │             │    │  │ OUR CODE:            │  │    │           │  │
+│  │  • Login    │    │  │                      │  │    │ ┌───────┐ │  │
+│  │  • Register │    │  │  Auth (bcrypt, JWT)  │  │    │ │Circle │ │  │
+│  │  • Pay page │    │  │  Handle registry     │  │    │ │Wallets│ │  │
+│  │  • Dashboard│◄──►│  │  Payment routing     │  │◄──►│ │API    │ │  │
+│  │  • History  │REST│  │  Transaction log     │  │    │ └───────┘ │  │
+│  │  • Withdraw │API │  │  Settlement trigger   │  │    │ ┌───────┐ │  │
+│  │  • QR codes │+JWT│  │  Withdrawal handler  │  │    │ │Gateway│ │  │
+│  │             │    │  │  Auto-funder         │  │    │ │API    │ │  │
+│  │  ─────────  │    │  │  WebSocket server    │  │    │ └───────┘ │  │
+│  │  NO web3    │    │  └──────────┬───────────┘  │    │ ┌───────┐ │  │
+│  │  libraries  │    │             │              │    │ │Faucet │ │  │
+│  │             │    │             ▼              │    │ │API    │ │  │
+│  │             │    │  ┌──────────────────────┐  │    │ └───────┘ │  │
+│  │             │    │  │ SDK LAYER:           │  │    │           │  │
+│  │             │    │  │                      │  │    │ ┌───────┐ │  │
+│  │             │    │  │ GatewayClient        │──┼───►│ │Arc    │ │  │
+│  │             │    │  │  .pay() ← server-side│  │    │ │Testnet│ │  │
+│  │             │    │  │  .withdraw()         │  │    │ └───────┘ │  │
+│  │             │    │  │  .getBalance()       │  │    │           │  │
+│  │             │    │  │                      │  │    │           │  │
+│  │             │    │  │ createGatewayMW      │  │    │           │  │
+│  │             │    │  │  (validates intents)  │  │    │           │  │
+│  │             │    │  │                      │  │    │           │  │
+│  │             │    │  │ BatchFacilitator     │  │    │           │  │
+│  │             │    │  │  .settle()           │  │    │           │  │
+│  │             │    │  └──────────────────────┘  │    │           │  │
+│  │             │    │                            │    │           │  │
+│  └─────────────┘    └───────────────────────────┘    └───────────┘  │
+│                                                                      │
+│  Pure React             All crypto here              Blockchain +    │
+│  (standard web app)     (server-side only)           Circle APIs     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+The thick boundary between frontend and backend is the key architectural
+decision. Everything to the left is a standard web app. Everything to
+the right is blockchain infrastructure. The user never crosses that line.
+
+
+---
+
+## Complete User Flows
+
+### Flow 1: Registration
+
+User signs up with email, password, and a handle. Backend creates their
+wallet, funds it, deposits into Gateway. User is immediately ready.
+
+```
+ User                    Frontend               Backend              Circle
   │                         │                       │                   │
-  │  "Withdraw $50 to       │                       │                   │
-  │   my Avalanche wallet"  │                       │                   │
+  │  Sign up:               │                       │                   │
+  │  email: bob@mail.com    │                       │                   │
+  │  password: ****         │                       │                   │
+  │  handle: bob            │                       │                   │
   │────────────────────────►│                       │                   │
-  │                         │  POST /withdraw       │                   │
+  │                         │  POST /api/register   │                   │
+  │                         │  {email, password,    │                   │
+  │                         │   handle: "bob"}      │                   │
   │                         │──────────────────────►│                   │
   │                         │                       │                   │
-  │                         │  1. Settle Alice's    │                   │
-  │                         │     pending intents   │                   │
-  │                         │     (if any unsettled)│                   │
+  │                         │  1. Validate:          │                   │
+  │                         │     handle unique? ✓   │                   │
+  │                         │     email unique? ✓    │                   │
+  │                         │     handle format? ✓   │                   │
   │                         │                       │                   │
-  │                         │     [settlement runs  │                   │
-  │                         │      for Alice only]  │                   │
-  │                         │                       │──────────────────►│
-  │                         │                       │  gatewayMint()    │
-  │                         │                       │  on Arc for Alice │
+  │                         │  2. Hash password      │                   │
+  │                         │     bcrypt(password)   │                   │
   │                         │                       │                   │
-  │                         │  2. Now Alice has     │                   │
-  │                         │     USDC on Arc.      │                   │
-  │                         │     Move to Avalanche:│                   │
+  │                         │  3. Create wallet      │                   │
+  │                         │     POST /developer/   │                   │
+  │                         │     wallets            │                   │
+  │                         │     {blockchains:      │                   │
+  │                         │      ["ARC-TESTNET"]}  │                   │
+  │                         │─────────────────────────────────────────►│
   │                         │                       │                   │
-  │                         │     a) deposit to     │                   │
-  │                         │        Gateway on Arc │──────────────────►│
-  │                         │        (0.5s finality)│                   │
+  │                         │                       │  wallet_id: w-123 │
+  │                         │                       │  address: 0xB2..  │
+  │                         │◄─────────────────────────────────────────│
   │                         │                       │                   │
-  │                         │     b) sign burn      │                   │
-  │                         │        intent →       │                   │
-  │                         │        Avalanche      │                   │
+  │                         │  4. Fund from faucet   │                   │
+  │                         │     POST /faucet       │                   │
+  │                         │     {address: 0xB2..,  │                   │
+  │                         │      chain: "ARC",     │                   │
+  │                         │      amount: 10}       │                   │
+  │                         │─────────────────────────────────────────►│
   │                         │                       │                   │
-  │                         │     c) submit to      │                   │
-  │                         │        Gateway API    │                   │
+  │                         │                       │  $10 USDC sent    │
+  │                         │                       │  to 0xB2..        │
+  │                         │◄─────────────────────────────────────────│
   │                         │                       │                   │
-  │                         │     d) gatewayMint()  │                   │
-  │                         │        on Avalanche   │──────────────────►│
+  │                         │  5. Deposit to Gateway │                   │
+  │                         │     approve + deposit  │                   │
+  │                         │     (signed server-    │                   │
+  │                         │      side with dev-    │                   │
+  │                         │      controlled key)   │                   │
+  │                         │─────────────────────────────────────────►│
   │                         │                       │                   │
-  │                         │                       │  $50 USDC minted  │
-  │                         │                       │  to Alice's Avax  │
-  │                         │                       │  address          │
+  │                         │                       │  ⏳ Arc: 0.5s     │
+  │                         │                       │  Gateway balance: │
+  │                         │                       │  $10.00           │
+  │                         │◄─────────────────────────────────────────│
   │                         │                       │                   │
-  │  "Withdrew $50 to       │  {tx_hash, status}    │                   │
+  │                         │  6. Save to DB:        │                   │
+  │                         │     handle: "bob"      │                   │
+  │                         │     email: bob@...     │                   │
+  │                         │     password_hash: ... │                   │
+  │                         │     wallet_id: w-123   │                   │
+  │                         │     wallet_addr: 0xB2  │                   │
+  │                         │                       │                   │
+  │                         │  7. Generate QR code   │                   │
+  │                         │     for usdc.me/@bob   │                   │
+  │                         │                       │                   │
+  │                         │  8. Sign JWT           │                   │
+  │                         │                       │                   │
+  │  "Welcome @bob!"        │  {jwt, handle, qr,    │                   │
+  │  Balance: $10.00        │   balance: 10}        │                   │
+  │  QR code ready          │◄──────────────────────│                   │
+  │◄────────────────────────│                       │                   │
+```
+
+**Timing:** Steps 3-5 take ~2-3 seconds total (wallet creation + faucet +
+Arc deposit). The user sees a loading spinner, then their funded dashboard.
+
+**What the user doesn't know:**
+- They have a wallet (0xB2...) on Arc Testnet
+- That wallet holds developer-controlled MPC key shards
+- Their $10 is deposited in a Gateway Wallet contract
+- They're ready to sign x402 spend intents
+
+They just see: "Welcome @bob! Balance: $10.00"
+
+
+### Flow 2: Login
+
+```
+ User                    Frontend               Backend
+  │                         │                       │
+  │  email: bob@mail.com    │                       │
+  │  password: ****         │                       │
+  │────────────────────────►│                       │
+  │                         │  POST /api/login      │
+  │                         │  {email, password}    │
+  │                         │──────────────────────►│
+  │                         │                       │
+  │                         │  1. Find user by email│
+  │                         │  2. bcrypt.compare()  │
+  │                         │  3. Query balance     │
+  │                         │     from Gateway      │
+  │                         │  4. Sign JWT          │
+  │                         │                       │
+  │                         │  {jwt, handle,        │
+  │                         │   balance: 8.50}      │
+  │                         │◄──────────────────────│
+  │                         │                       │
+  │  Dashboard loads.       │                       │
+  │  Balance: $8.50         │                       │
+  │◄────────────────────────│                       │
+```
+
+Standard JWT auth. Nothing blockchain about it.
+
+
+### Flow 3: Payment (The Core Flow)
+
+@bob pays @alice $5. Both are registered users. No wallet interaction.
+
+```
+ @bob (phone)             Frontend               Backend              SDK
+  │                          │                       │                   │
+  │  Opens usdc.me/@alice    │                       │                   │
+  │  (scanned QR or typed    │                       │                   │
+  │   handle in search)      │                       │                   │
+  │                          │                       │                   │
+  │                          │  GET /api/user/alice  │                   │
+  │                          │──────────────────────►│                   │
+  │                          │  {handle: "alice",    │                   │
+  │                          │   pay_link, avatar}   │                   │
+  │                          │◄──────────────────────│                   │
+  │                          │                       │                   │
+  │  Payment page:           │                       │                   │
+  │  ┌───────────────────┐   │                       │                   │
+  │  │  Pay @alice       │   │                       │                   │
+  │  │                   │   │                       │                   │
+  │  │  Amount: [  $5  ] │   │                       │                   │
+  │  │                   │   │                       │                   │
+  │  │  [ Pay $5.00 ]    │   │                       │                   │
+  │  └───────────────────┘   │                       │                   │
+  │                          │                       │                   │
+  │  Taps "Pay $5.00"        │                       │                   │
+  │─────────────────────────►│                       │                   │
+  │                          │  POST /api/pay/alice  │                   │
+  │                          │  Auth: Bearer <jwt>   │                   │
+  │                          │  {amount: 5}          │                   │
+  │                          │─────────────────────►│                   │
+  │                          │                       │                   │
+  │                          │  1. Verify JWT         │                   │
+  │                          │     → sender: @bob    │                   │
+  │                          │                       │                   │
+  │                          │  2. Prevent self-pay  │                   │
+  │                          │     bob ≠ alice ✓     │                   │
+  │                          │                       │                   │
+  │                          │  3. Resolve @alice    │                   │
+  │                          │     → wallet: 0xA1.. │                   │
+  │                          │                       │                   │
+  │                          │  4. Check balance     │                   │
+  │                          │     @bob has $10 ✓    │                   │
+  │                          │                       │                   │
+  │                          │  5. SIGN x402 INTENT  │                   │
+  │                          │     server-side       │                   │
+  │                          │                       │                   │
+  │                          │     GatewayClient     │                   │
+  │                          │     .pay({            │                   │
+  │                          │       to: 0xA1...,    │                   │
+  │                          │       amount: 5e6,    │                   │
+  │                          │       signer: <bob's  │                   │
+  │                          │        Circle wallet  │                   │
+  │                          │        key>           │                   │
+  │                          │     })                │                   │
+  │                          │──────────────────────────────────────────►│
+  │                          │                       │                   │
+  │                          │  Intent signed:        │                   │
+  │                          │  ✓ EIP-3009 sig valid  │                   │
+  │                          │  ✓ Balance sufficient  │                   │
+  │                          │  ✓ Nonce valid         │                   │
+  │                          │  ✓ Not expired         │                   │
+  │                          │◄──────────────────────────────────────────│
+  │                          │                       │                   │
+  │                          │  6. Log transaction    │                   │
+  │                          │     {from: "bob",     │                   │
+  │                          │      to: "alice",     │                   │
+  │                          │      amount: 5,       │                   │
+  │                          │      status: pending} │                   │
+  │                          │                       │                   │
+  │                          │  7. Update balances    │                   │
+  │                          │     @bob:  $10 → $5   │                   │
+  │                          │     @alice: $0 → $5   │                   │
+  │                          │                       │                   │
+  │                          │  8. WebSocket push     │                   │
+  │                          │     → Alice's browser  │                   │
+  │                          │     "💰 $5 from @bob"  │                   │
+  │                          │                       │                   │
+  │                          │  {status: "paid",     │                   │
+  │                          │   to: "alice",        │                   │
+  │                          │   amount: 5,          │                   │
+  │                          │   new_balance: 5}     │                   │
+  │                          │◄─────────────────────│                   │
+  │                          │                       │                   │
+  │  "Paid @alice $5! ✅"    │                       │                   │
+  │  Balance: $5.00          │                       │                   │
+  │◄─────────────────────────│                       │                   │
+
+
+  Meanwhile, on Alice's laptop:
+  ┌──────────────────────────────────────┐
+  │  Dashboard                            │
+  │                                       │
+  │  Balance: $5.00                       │
+  │                                       │
+  │  Recent:                              │
+  │  💰 $5.00 from @bob  •  just now     │
+  │     Status: pending settlement        │
+  └──────────────────────────────────────┘
+```
+
+**What the user experiences:** Type $5 → tap "Pay" → ✅ done.
+**What actually happens:** EIP-3009 TransferWithAuthorization signed
+with Circle wallet MPC key, validated by x402 SDK middleware, backed
+by real Gateway deposit on Arc.
+
+**Timing breakdown:**
+- JWT verification: <1ms
+- Handle lookup: <1ms
+- Balance check (Gateway): ~50ms
+- Sign intent (Circle wallet key): ~100ms
+- SDK validation: ~50ms
+- DB write + WS push: ~10ms
+- **Total: ~200-300ms**
+
+
+### Flow 4: Batch Settlement
+
+Triggered by cron (hourly) or "Settle Now" button (for demo).
+
+```
+ Trigger                    Our Code                SDK / Gateway
+  │                            │                         │
+  │  POST /api/settle          │                         │
+  │  (or cron fires)           │                         │
+  │───────────────────────────►│                         │
+  │                            │                         │
+  │                            │  Query our DB:          │
+  │                            │  5 pending transactions │
+  │                            │  total: $23.50          │
+  │                            │                         │
+  │                            │  BatchFacilitator       │
+  │                            │  Client.settle()        │
+  │                            │────────────────────────►│
+  │                            │                         │
+  │                            │  SDK handles:            │
+  │                            │  • Collect pending       │
+  │                            │    spend intents         │
+  │                            │  • Submit to Gateway     │
+  │                            │  • Gateway settles       │
+  │                            │    on Arc Testnet        │
+  │                            │                         │
+  │                            │  {txHash: "0xabc...",    │
+  │                            │   count: 5,             │
+  │                            │   amount: 23.50}        │
+  │                            │◄────────────────────────│
+  │                            │                         │
+  │                            │  Update our DB:          │
+  │                            │  • 5 txns → "settled"   │
+  │                            │  • Log settlement:       │
+  │                            │    id, count, hash      │
+  │                            │                         │
+  │  {settlement_id,           │                         │
+  │   intent_count: 5,         │                         │
+  │   total: 23.50,            │                         │
+  │   tx_hash: "0xabc...",     │                         │
+  │   message: "5 intents      │                         │
+  │    settled in 1 tx"}       │                         │
+  │◄───────────────────────────│                         │
+
+
+  Dashboard after settlement:
+  ┌──────────────────────────────────────┐
+  │  Recent:                              │
+  │  💰 $5.00 from @bob  •  2 min ago   │
+  │     Status: ✅ settled (tx: 0xabc..) │
+  │  💰 $3.00 from @bob  •  5 min ago   │
+  │     Status: ✅ settled (tx: 0xabc..) │
+  └──────────────────────────────────────┘
+```
+
+**What the user sees:** transactions switch from "pending" to "settled ✅"
+with a link to the Arc block explorer.
+
+**What the demo audience sees:** "5 intents → 1 on-chain transaction on Arc."
+That's the x402 batching story. That's Arc as the liquidity hub.
+
+
+### Flow 5: Withdrawal
+
+```
+ @alice                  Frontend               Backend              SDK
+  │                         │                       │                   │
+  │  Dashboard → Withdraw   │                       │                   │
+  │                         │                       │                   │
+  │  ┌───────────────────┐  │                       │                   │
+  │  │ Withdraw USDC     │  │                       │                   │
+  │  │                   │  │                       │                   │
+  │  │ Amount: [ $20   ] │  │                       │                   │
+  │  │                   │  │                       │                   │
+  │  │ To chain:         │  │                       │                   │
+  │  │ [Avalanche Fuji ▼]│  │                       │                   │
+  │  │                   │  │                       │                   │
+  │  │ Address:          │  │                       │                   │
+  │  │ [0xMyAvaxAddr...] │  │                       │                   │
+  │  │                   │  │                       │                   │
+  │  │ [ Withdraw ]      │  │                       │                   │
+  │  └───────────────────┘  │                       │                   │
+  │                         │                       │                   │
+  │  Taps "Withdraw"        │                       │                   │
+  │────────────────────────►│                       │                   │
+  │                         │  POST /api/withdraw   │                   │
+  │                         │  Auth: Bearer <jwt>   │                   │
+  │                         │  {amount: 20,         │                   │
+  │                         │   chain: "avaxFuji",  │                   │
+  │                         │   address: "0xMy.." } │                   │
+  │                         │──────────────────────►│                   │
+  │                         │                       │                   │
+  │                         │  1. Verify JWT → alice│                   │
+  │                         │  2. Check balance ✓   │                   │
+  │                         │  3. Validate address  │                   │
+  │                         │                       │                   │
+  │                         │  4. GatewayClient     │                   │
+  │                         │     .withdraw(20, {   │                   │
+  │                         │       chain: avaxFuji,│                   │
+  │                         │       to: 0xMy...     │                   │
+  │                         │     })                │                   │
+  │                         │──────────────────────────────────────────►│
+  │                         │                       │                   │
+  │                         │  SDK handles:          │                   │
+  │                         │  • Settle pending      │                   │
+  │                         │  • Gateway transfer    │                   │
+  │                         │  • Mint on Avalanche   │                   │
+  │                         │                       │                   │
+  │                         │  {txHash: "0xdef..."}  │                   │
+  │                         │◄──────────────────────────────────────────│
+  │                         │                       │                   │
+  │                         │  5. Log withdrawal     │                   │
+  │                         │  6. Update balance     │                   │
+  │                         │                       │                   │
+  │  "Withdrew $20 to       │  {tx_hash, status}    │                   │
   │   Avalanche! ✅"        │◄──────────────────────│                   │
+  │  tx: 0xdef...           │                       │                   │
+  │◄────────────────────────│                       │                   │
+```
+
+The dropdown shows chain names like "Avalanche," "Base," "Ethereum" —
+not "Avalanche Fuji" or "Base Sepolia." The testnet suffixes are hidden.
+The user is picking a destination, not a blockchain network.
+
+
+### Flow 6: Add Funds
+
+Testnet only. Production would use fiat on-ramp or external transfer.
+
+```
+ @bob                    Frontend               Backend              Circle
+  │                         │                       │                   │
+  │  Dashboard →            │                       │                   │
+  │  "Add Funds"            │                       │                   │
+  │                         │                       │                   │
+  │  Taps "Get Free         │                       │                   │
+  │   Test USDC"            │                       │                   │
+  │────────────────────────►│                       │                   │
+  │                         │  POST /api/fund       │                   │
+  │                         │  Auth: Bearer <jwt>   │                   │
+  │                         │──────────────────────►│                   │
+  │                         │                       │                   │
+  │                         │  1. Call faucet:       │                   │
+  │                         │     $10 → @bob wallet │                   │
+  │                         │─────────────────────────────────────────►│
+  │                         │                       │  USDC delivered   │
+  │                         │◄─────────────────────────────────────────│
+  │                         │                       │                   │
+  │                         │  2. Deposit to Gateway │                   │
+  │                         │     (0.5s on Arc)     │                   │
+  │                         │─────────────────────────────────────────►│
+  │                         │                       │  Balance updated  │
+  │                         │◄─────────────────────────────────────────│
+  │                         │                       │                   │
+  │  Balance: $15.00        │  {new_balance: 15}    │                   │
+  │  (was $5.00)            │◄──────────────────────│                   │
   │◄────────────────────────│                       │                   │
 ```
 
 
-## Revised Data Model
+---
+
+## The x402 Nanopayment Story (For Judges)
+
+This section explains why the x402 architecture matters, even though
+users never see it. This is what we show on the architecture slide and
+explain during the technical Q&A.
+
+### Why Not Just a Database?
+
+A fair question: if the backend controls everything, why use x402 at all?
+Why not just debit one row and credit another in SQLite?
 
 ```
-DATABASE SCHEMA (v2 — with off-chain ledger)
-════════════════════════════════════════════
+DATABASE-ONLY APPROACH (what we DON'T do):
+══════════════════════════════════════════
+
+  @bob pays @alice $5:
+    UPDATE users SET balance = balance - 5 WHERE handle = 'bob';
+    UPDATE users SET balance = balance + 5 WHERE handle = 'alice';
+
+  Problems:
+  • No cryptographic proof of anything
+  • Our database is the single source of truth (trusted intermediary)
+  • Settlement on-chain requires us to reconstruct transfers
+  • No verifiability — Alice has to trust us
+  • If our DB corrupts, money is lost
+  • Gateway has no idea what happened
+
+
+x402 APPROACH (what we DO):
+═══════════════════════════
+
+  @bob pays @alice $5:
+    1. Sign EIP-3009 TransferWithAuthorization with @bob's key
+    2. SDK validates: signature, balance, nonce
+    3. Intent recorded (cryptographically signed artifact)
+    4. @alice credited (backed by Gateway deposit)
+
+  Why this is better:
+  • Every payment is a signed cryptographic intent
+  • Gateway tracks balances and validates at settlement
+  • Settlement is verifiable on-chain (tx hash on Arc)
+  • The system is auditable end-to-end
+  • If our DB dies, Gateway still has the intents
+  • This is the pattern Circle built x402 for
+```
+
+### The Nanopayment Advantage (Why Batching Matters)
+
+```
+WITHOUT BATCHING (per-payment settlement):
+══════════════════════════════════════════
+
+  Payment 1: @bob → @alice $5    →  on-chain tx ($0.01 gas)
+  Payment 2: @bob → @alice $3    →  on-chain tx ($0.01 gas)
+  Payment 3: @carol → @alice $8  →  on-chain tx ($0.01 gas)
+  Payment 4: @dave → @bob $12    →  on-chain tx ($0.01 gas)
+  Payment 5: @carol → @bob $7    →  on-chain tx ($0.01 gas)
+
+  5 payments = 5 on-chain transactions
+  Total gas: $0.05
+  Time: depends on chain finality
+
+
+WITH x402 BATCHING (what we do):
+════════════════════════════════
+
+  Payment 1: @bob → @alice $5    →  signed intent (off-chain)
+  Payment 2: @bob → @alice $3    →  signed intent (off-chain)
+  Payment 3: @carol → @alice $8  →  signed intent (off-chain)
+  Payment 4: @dave → @bob $12    →  signed intent (off-chain)
+  Payment 5: @carol → @bob $7    →  signed intent (off-chain)
+
+  settle() →
+    5 intents, netted to 2 recipients:
+    @alice: $5 + $3 + $8 = $16  →  1 on-chain settlement
+    @bob: $12 + $7 = $19        →  1 on-chain settlement
+
+  5 payments = 2 on-chain operations (or fewer)
+  Gas: ~$0.02
+  Payments were instant. Settlement is background.
+```
+
+This is the story for judges:
+- Payments are instant because they're off-chain signed intents
+- Settlement is efficient because intents batch and net
+- Arc is the hub because all settlement lands there (fastest finality)
+- Gateway handles the cross-chain mechanics
+- The user sees none of this — just "Paid! ✅"
+
+
+---
+
+## Data Model
+
+```
+DATABASE SCHEMA
+═══════════════
 
 users
-├── id                (UUID)
-├── handle            (VARCHAR, unique)
-├── wallet_id         (VARCHAR, Circle wallet ID)
-├── wallet_address    (VARCHAR, 0x on Arc)
-├── created_at        (TIMESTAMP)
-└── updated_at        (TIMESTAMP)
+├── id              (TEXT, UUID, PRIMARY KEY)
+├── handle          (TEXT, UNIQUE)
+├── email           (TEXT, UNIQUE)
+├── password_hash   (TEXT)
+├── wallet_id       (TEXT, Circle wallet ID)
+├── wallet_address  (TEXT, 0x on Arc)
+├── created_at      (TEXT, ISO timestamp)
 
-
-gateway_deposits
-├── id                (UUID)
-├── depositor_address (VARCHAR, sender's address)
-├── amount            (DECIMAL, USDC deposited)
-├── source_chain      (VARCHAR, e.g. "base-sepolia")
-├── tx_hash           (VARCHAR, deposit tx hash)
-├── status            (ENUM: pending_finality, confirmed)
-├── confirmed_at      (TIMESTAMP)
-└── created_at        (TIMESTAMP)
-
-
-spend_intents
-├── id                (UUID)
-├── sender_address    (VARCHAR, who signed)
-├── recipient_handle  (VARCHAR, e.g. "alice")
-├── recipient_address (VARCHAR, 0x on Arc)
-├── amount            (DECIMAL, USDC amount)
-├── nonce             (INTEGER, per-sender incrementing)
-├── deadline          (TIMESTAMP, expiry)
-├── signature         (VARCHAR, EIP-712 sig, 65 bytes hex)
-├── intent_hash       (VARCHAR, hash of the typed data)
-├── status            (ENUM: pending, settling, settled, expired)
-├── settlement_id     (UUID, FK → settlements, null until settled)
-├── created_at        (TIMESTAMP)
-└── settled_at        (TIMESTAMP)
-
+transactions
+├── id              (TEXT, UUID, PRIMARY KEY)
+├── from_handle     (TEXT, sender)
+├── to_handle       (TEXT, recipient)
+├── amount          (REAL, USDC)
+├── intent_id       (TEXT, x402 spend intent ID)
+├── status          (TEXT: pending | settled)
+├── settlement_id   (TEXT, FK, null until settled)
+├── created_at      (TEXT, ISO timestamp)
 
 settlements
-├── id                (UUID)
-├── total_amount      (DECIMAL, sum of all intents in batch)
-├── num_intents       (INTEGER, how many intents in this batch)
-├── num_recipients    (INTEGER, how many unique recipients)
-├── trigger           (ENUM: cron, withdrawal, manual)
-├── status            (ENUM: processing, completed, failed)
-├── created_at        (TIMESTAMP)
-└── completed_at      (TIMESTAMP)
+├── id              (TEXT, UUID, PRIMARY KEY)
+├── intent_count    (INTEGER)
+├── total_amount    (REAL)
+├── tx_hash         (TEXT, on-chain tx on Arc)
+├── trigger         (TEXT: cron | manual | withdrawal)
+├── created_at      (TEXT, ISO timestamp)
 
-
-settlement_mints
-├── id                (UUID)
-├── settlement_id     (UUID, FK → settlements)
-├── recipient_handle  (VARCHAR)
-├── recipient_address (VARCHAR)
-├── amount            (DECIMAL, netted amount for this recipient)
-├── destination_chain (VARCHAR, usually "arc-testnet")
-├── mint_tx_hash      (VARCHAR, gatewayMint tx hash)
-├── status            (ENUM: pending, confirmed, failed)
-└── created_at        (TIMESTAMP)
-
-
-balances (materialized view / cached)
-├── address           (VARCHAR, primary key)
-├── handle            (VARCHAR, null for non-registered senders)
-├── gateway_balance   (DECIMAL, confirmed Gateway deposits)
-├── pending_spend     (DECIMAL, sum of unsettled spend intents)
-├── available         (DECIMAL, gateway_balance - pending_spend)
-├── received_pending  (DECIMAL, credited but unsettled)
-├── received_settled  (DECIMAL, settled and on-chain)
-└── updated_at        (TIMESTAMP)
+withdrawals
+├── id              (TEXT, UUID, PRIMARY KEY)
+├── handle          (TEXT)
+├── amount          (REAL)
+├── destination     (TEXT, chain name)
+├── dest_address    (TEXT, 0x on destination)
+├── tx_hash         (TEXT, mint tx)
+├── status          (TEXT: processing | completed | failed)
+├── created_at      (TEXT, ISO timestamp)
 ```
 
 
-## Revised API Endpoints
+---
+
+## API Endpoints
 
 ```
-PUBLIC ENDPOINTS
-════════════════
+AUTH
+════
 
 POST   /api/register
-       Body: { handle }
-       → { handle, qr_code, pay_link }
+       Body: { email, password, handle }
+       → Creates user + wallet + funds + Gateway deposit
+       → { jwt, handle, balance, qr_code_url, pay_link }
+
+POST   /api/login
+       Body: { email, password }
+       → { jwt, handle, balance }
+
+
+PUBLIC
+══════
 
 GET    /api/user/:handle
-       → { handle, wallet_address }
-       (Used by payment page)
-
-GET    /api/balance/:address
-       → { gateway_balance, pending_spend, available }
-       (Sender checks their available balance before paying)
+       → { handle, pay_link, qr_code_url }
+       (payment page uses this to display recipient)
 
 
-PAYMENT ENDPOINTS
-═════════════════
+PAYMENT (authenticated)
+═══════════════════════
 
 POST   /api/pay/:handle
-       Body: { intent, signature }
-       intent: { sender, recipient, amount, nonce, deadline }
-       → Validates signature, checks balance, stores intent
-       → { status: "success", new_available_balance }
-
-GET    /api/nonce/:address
-       → { next_nonce }
-       (Frontend needs this to construct the intent)
+       Auth: Bearer <jwt>
+       Body: { amount }
+       → Server-side x402 spend intent
+       → { status, to, amount, new_balance }
 
 
-AUTHENTICATED ENDPOINTS (recipient)
-════════════════════════════════════
+DASHBOARD (authenticated)
+═════════════════════════
 
-GET    /api/dashboard/:handle
-       → { received_pending, received_settled, total_balance,
-           recent_payments: [...] }
+GET    /api/dashboard
+       Auth: Bearer <jwt>
+       → { handle, balance, pending, settled,
+           recent: [...], qr_code_url }
+
+GET    /api/transactions
+       Auth: Bearer <jwt>
+       → [ { type, counterparty, amount, status,
+              settlement_tx, timestamp } ]
+
+
+WITHDRAWAL (authenticated)
+══════════════════════════
 
 POST   /api/withdraw
-       Body: { amount, destination_chain, destination_address }
-       → Triggers settlement + cross-chain mint
-       → { status, estimated_time, settlement_id }
-
-GET    /api/transactions/:handle
-       → [ { from, amount, timestamp, status } ]
+       Auth: Bearer <jwt>
+       Body: { amount, chain, address }
+       → { tx_hash, status }
 
 
-DEPOSIT ENDPOINT (for senders)
-══════════════════════════════
+FUNDING (authenticated, testnet only)
+═════════════════════════════════════
 
-POST   /api/deposit/prepare
-       Body: { sender_address, amount, source_chain }
-       → { gateway_wallet_address, usdc_contract_address,
-           deposit_instructions }
-       (Frontend uses this to guide sender through deposit)
-
-POST   /api/deposit/confirm
-       Body: { sender_address, tx_hash, source_chain }
-       → Begins monitoring for finality confirmation
-       → { status: "monitoring" }
+POST   /api/fund
+       Auth: Bearer <jwt>
+       → { new_balance }
 
 
-INTERNAL / ADMIN
-════════════════
+SETTLEMENT (admin / demo)
+═════════════════════════
 
 POST   /api/settle
-       → Manually trigger settlement batch
-       → { settlement_id, num_intents, num_recipients }
+       → { settlement_id, intent_count, total_amount, tx_hash }
 
 GET    /api/settlement/:id
-       → { status, intents_count, mints: [...] }
+       → { status, intent_count, total_amount, tx_hash }
 ```
 
 
-## The Fee Model (Revised)
-
-With nanopayments, fees become cleaner:
-
-```
-FEE EXTRACTION
-══════════════
-
-When sender signs a spend intent for $50:
-
-  Our backend stores:
-    recipient credit:  $49.75  (99.5%)
-    platform fee:      $0.25   (0.5%)
-
-  At settlement time:
-    gatewayMint() to Alice:    $49.75
-    gatewayMint() to fee wallet: $0.25
-    (or just accumulate fees and settle less frequently)
-
-  Even simpler: during settlement netting, just subtract
-  our fee from each recipient's netted total.
-
-  47 intents → 5 recipient mints + 1 fee mint = 6 mints total
-```
-
-
-## Demo Script (Revised — Much Better Now)
-
-```
-DEMO: 2 MINUTES
-════════════════
-
-Setup (done before demo):
-• Pre-register @demo account
-• Pre-deposit $100 USDC from Arc Testnet into Gateway
-  for the "sender" wallet (0.5s, done backstage)
-
-0:00  "This is USDC.me. One handle. Any chain."
-      Show the @demo payment page + QR code.
-
-0:15  "Let me pay myself from a different wallet."
-      Open phone, scan QR code.
-      Payment page loads. Enter $5.
-
-0:25  "I already have USDC loaded in Gateway.
-       Watch — one signature, no gas, instant."
-
-0:30  Sign the EIP-712 message on phone.
-      ✅ "Paid @demo $5!"
-      
-      Dashboard on laptop updates in real-time.
-      "$5 received from 0xAbc..."
-
-0:40  "That payment never hit the blockchain.
-       It's an off-chain signed intent.
-       Instant. Gasless. Cryptographically binding."
-
-0:55  "I can stack up payments all day.
-       They batch-settle hourly on Arc."
-      
-      Click "Settle Now" button on admin panel.
-      Show settlement happening — 1 on-chain tx
-      for all pending payments.
-
-1:15  "Now let's say I want my money on Avalanche."
-      Click Withdraw → $20 → Avalanche.
-      
-      "Settlement triggers, Gateway mints on Avalanche.
-       Sub-second on Arc, then instant cross-chain."
-
-1:35  Show the Avalanche Fuji block explorer.
-      $20 USDC minted to withdrawal address.
-
-1:45  "To recap: the sender deposited once.
-       Every payment after that was a signature.
-       Settlement batches everything.
-       Withdrawal goes to any of 9 chains.
-       
-       One handle. Instant payments. Zero gas.
-       That's USDC.me."
-
-2:00  End.
-```
-
+---
 
 ## Why This Architecture Wins
 
 ```
-JUDGES CARE ABOUT                  HOW WE DELIVER
-══════════════════                 ════════════════
+WHAT JUDGES WANT                   HOW WE DELIVER
+════════════════                   ════════════════
 
-Arc as liquidity hub?              Arc is where all settlements
-                                   land. Hub by design.
+Arc as liquidity hub?              All wallets live on Arc.
+                                   All settlements land on Arc.
+                                   Fastest finality = best hub.
 
-Uses Gateway?                      Gateway for deposits, settlement,
-                                   AND cross-chain withdrawals.
+Uses Gateway?                      Deposits, settlement, and
+                                   withdrawals all through Gateway.
                                    Triple integration.
 
-Chain abstraction?                 Sender deposits from any chain.
-                                   Recipient withdraws to any chain.
-                                   Payments are chain-agnostic.
+Uses Circle Wallets?               Every user gets a developer-
+                                   controlled wallet on Arc.
+                                   Created via API at signup.
 
-Innovation?                        Nanopayments/batching is Circle's
-                                   newest product. We're early
-                                   adopters showing the pattern.
+Uses x402 Batching SDK?            Every payment is a real x402
+                                   spend intent (server-side).
+                                   Batch settlement via settle().
+                                   This IS the nanopayment pattern.
 
-Real product?                      Venmo-like UX. QR codes.
-                                   Instant payments. This could
-                                   actually be used.
+Chain abstraction?                 Users don't even know they're
+                                   on a blockchain. Withdraw to
+                                   any chain from a dropdown.
+                                   Total abstraction.
 
-Technical depth?                   Off-chain ledger, EIP-712 signing,
-                                   netting algorithm, batch settlement,
-                                   cross-chain withdrawal pipeline.
+Real product?                      Email signup. Tap to pay.
+                                   QR codes. Dashboard.
+                                   This is Venmo.
+
+Demo accessibility?                Judges can try it on their
+                                   phones. No MetaMask needed.
+                                   No testnet setup.
+
+Technical depth?                   x402 protocol, EIP-3009,
+                                   server-side intent signing,
+                                   batch settlement, netting,
+                                   cross-chain withdrawal,
+                                   developer-controlled wallets,
+                                   auto-funding pipeline.
+                                   All invisible to the user.
 ```
+
+
+---
+
+## Demo Script (2 Minutes)
+
+**Backstage setup:**
+- Pre-register @demo (laptop) and @sender (phone)
+- Both auto-funded with $50 testnet USDC
+- Both logged in
+
+**Live:**
+
+0:00  *"This is USDC.me. I signed up with email and a handle. No wallets.
+       No MetaMask. No seed phrases."*
+
+      Show @demo dashboard. Balance: $50. QR code visible.
+
+0:15  Pick up phone (logged in as @sender). Scan QR.
+      Payment page: "Pay @demo"
+      Type $5. Tap "Pay."
+
+0:25  ✅ Instant. Laptop dashboard: "💰 $5 from @sender"
+
+      *"That was a real x402 spend intent — EIP-3009, signed with a
+       Circle developer-controlled wallet, validated by the SDK. The
+       user just tapped a button."*
+
+0:40  Two more payments: $3, then $8. Rapid-fire.
+      ✅ Balance ticks: $55 → $58 → $66.
+
+      *"Every payment is a signed intent. Off-chain. Instant. I can
+       stack them all day."*
+
+0:55  Switch to settlement view.
+      *"Three payments, all off-chain. Let's settle."*
+      Tap "Settle Now."
+
+      Result: "3 intents settled. 1 on-chain tx. Arc Testnet."
+      Show tx hash.
+
+      *"Three payments. One transaction on Arc. That's x402 batching
+       and Arc as the liquidity hub."*
+
+1:15  Tap "Withdraw" → $10 → Avalanche → paste address.
+      Tap "Withdraw."
+
+      *"Now I want USDC on Avalanche. One tap."*
+      Tx hash appears.
+
+      *"Gateway mints on Avalanche. Any of nine chains."*
+
+1:35  *"Zero Web3 UX. Full x402 pipeline. Every payment is a real
+       cryptographic intent backed by Gateway deposits. Batch
+       settlement on Arc. Cross-chain withdrawal via Gateway.
+       Circle Wallets, Gateway, and x402 SDK — all invisible.*
+
+      *One handle. One tap. That's USDC.me."*
+
+2:00  End.
