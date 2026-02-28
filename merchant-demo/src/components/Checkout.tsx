@@ -38,7 +38,7 @@ export default function Checkout({ product, onBack, onPaid }: Props) {
       QRCode.toCanvas(canvasRef.current, paymentUrl, {
         width: 200,
         margin: 2,
-        color: { dark: '#e8e8f0', light: '#13132a' },
+        color: { dark: '#000000', light: '#ffffff' },
       });
     }
   }, [paymentUrl]);

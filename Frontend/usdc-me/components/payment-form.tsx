@@ -34,7 +34,7 @@ import {
 const schema = z.object({
   amount: z
     .string()
-    .regex(/^\d+(\.\d{1,6})?$/, "Enter a valid amount")
+    .regex(/^\d+(\.\d{1,5})?$/, "Enter a valid amount")
     .refine((v) => parseFloat(v) > 0, "Amount must be greater than 0"),
 })
 
@@ -139,8 +139,8 @@ export function PaymentForm({ handle, recipientAddress }: PaymentFormProps) {
                     </InputGroupAddon>
                     <InputGroupInput
                       type="number"
-                      step="0.01"
-                      min="0.01"
+                      step="0.00001"
+                      min="0.00001"
                       placeholder="0.00"
                       className="text-lg"
                       {...field}

@@ -129,10 +129,10 @@ export function QrScannerDialog() {
   const [open, setOpen] = useState(false)
 
   function handleScan(text: string) {
-    const handle = extractHandle(text)
-    if (handle) {
+    const destination = extractDestination(text)
+    if (destination) {
       setOpen(false)
-      router.push(`/${handle}`)
+      router.push(destination)
     }
   }
 
@@ -149,7 +149,7 @@ export function QrScannerDialog() {
         <DialogHeader>
           <DialogTitle>Scan a payment QR code</DialogTitle>
           <DialogDescription>
-            Point your camera at someone&apos;s USDC-ME QR code to pay them instantly.
+            Point your camera at a USDC-ME user QR code or a merchant payment QR code.
           </DialogDescription>
         </DialogHeader>
 
@@ -163,18 +163,30 @@ export function QrScannerDialog() {
 // ── Helpers ──
 
 /**
- * Extracts the handle from a USDC-ME URL or plain handle string.
- * Accepts: https://www.usdc-me.xyz/alice  |  http://localhost:3000/alice  |  alice
+ * Resolves a scanned QR value to an internal navigation path.
+ *
+ * Handles:
+ *  - Merchant payment URLs: https://usdc-me.xyz/pay/pay_abc123  → /pay/pay_abc123
+ *  - User handle URLs:      https://usdc-me.xyz/alice           → /alice
+ *  - Plain handles:         alice                               → /alice
  */
-function extractHandle(text: string): string | null {
+function extractDestination(text: string): string | null {
   text = text.trim()
   try {
     const url = new URL(text)
-    const segments = url.pathname.replace(/^\//, "").split("/")
+    const segments = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean)
+
+    // Merchant payment: /pay/{paymentId}
+    if (segments[0] === "pay" && segments[1]) {
+      return `/pay/${segments[1]}`
+    }
+
+    // User handle: /{handle}
     const handle = segments[0]
-    return handle && handle.length > 0 ? handle : null
+    return handle && handle.length > 0 ? `/${handle}` : null
   } catch {
-    if (/^[a-zA-Z0-9_-]{1,30}$/.test(text)) return text
+    // Plain handle string
+    if (/^[a-zA-Z0-9_-]{1,30}$/.test(text)) return `/${text}`
     return null
   }
 }
