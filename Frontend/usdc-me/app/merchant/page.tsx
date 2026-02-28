@@ -23,7 +23,7 @@ import { Alert } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 
 const FRONTEND_URL =
-  process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
+  process.env.NEXT_PUBLIC_FRONTEND_URL ?? "https://www.usdc-me.xyz"
 
 export default function MerchantPage() {
   const { user, isLoading: authLoading } = useAuth()

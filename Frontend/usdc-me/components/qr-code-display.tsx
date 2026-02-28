@@ -15,7 +15,7 @@ interface QRCodeDisplayProps {
 export function QRCodeDisplay({ handle }: QRCodeDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [copied, setCopied] = useState(false)
-  const payUrl = `${typeof window !== "undefined" ? window.location.origin : "https://usdc.me"}/${handle}`
+  const payUrl = `${typeof window !== "undefined" ? window.location.origin : "https://www.usdc-me.xyz"}/${handle}`
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -45,7 +45,7 @@ export function QRCodeDisplay({ handle }: QRCodeDisplayProps) {
           aria-label={`QR code for ${payUrl}`}
         />
         <p className="text-muted-foreground font-mono text-sm">
-          usdc.me/{handle}
+          usdc-me.xyz/{handle}
         </p>
         <Tooltip>
           <TooltipTrigger asChild>

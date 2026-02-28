@@ -130,7 +130,7 @@ export default function Checkout({ product, onBack, onPaid }: Props) {
       {/* Pay button */}
       {status === 'idle' && (
         <button className="pay-btn" onClick={startPayment}>
-          Pay with USDC.me
+          Pay with USDC-ME
         </button>
       )}
 

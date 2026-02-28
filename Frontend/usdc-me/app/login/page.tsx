@@ -74,7 +74,7 @@ function LoginForm() {
         <div className="text-center">
           <h1 className="text-2xl font-bold">Welcome back</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Log in to your USDC.me account
+            Log in to your USDC-ME account
           </p>
         </div>
 

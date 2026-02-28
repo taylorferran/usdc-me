@@ -72,7 +72,7 @@ export default async function HandlePage({ params }: HandlePageProps) {
 
         <p className="text-muted-foreground text-center text-xs">
           Powered by{" "}
-          <span className="font-medium">USDC.me</span> &middot; Circle x402 on
+          <span className="font-medium">USDC-ME</span> &middot; Circle x402 on
           Arc
         </p>
       </div>

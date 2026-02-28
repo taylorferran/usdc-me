@@ -149,7 +149,7 @@ export function QrScannerDialog() {
         <DialogHeader>
           <DialogTitle>Scan a payment QR code</DialogTitle>
           <DialogDescription>
-            Point your camera at someone&apos;s USDC.me QR code to pay them instantly.
+            Point your camera at someone&apos;s USDC-ME QR code to pay them instantly.
           </DialogDescription>
         </DialogHeader>
 
@@ -163,8 +163,8 @@ export function QrScannerDialog() {
 // ── Helpers ──
 
 /**
- * Extracts the handle from a USDC.me URL or plain handle string.
- * Accepts: https://usdc.me/alice  |  http://localhost:3000/alice  |  alice
+ * Extracts the handle from a USDC-ME URL or plain handle string.
+ * Accepts: https://www.usdc-me.xyz/alice  |  http://localhost:3000/alice  |  alice
  */
 function extractHandle(text: string): string | null {
   text = text.trim()

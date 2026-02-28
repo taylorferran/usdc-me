@@ -42,7 +42,7 @@ export default function Home() {
         <p className="text-muted-foreground mb-10 max-w-md text-lg">
           Create your personal payment link and start receiving USDC in seconds.
           No wallets, no complexity — just{" "}
-          <span className="font-medium">usdc.me/@you</span>.
+          <span className="font-medium">usdc-me.xyz/@you</span>.
         </p>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
@@ -57,7 +57,7 @@ export default function Home() {
         <p className="text-muted-foreground mt-4 text-sm">
           Already have a link? Try{" "}
           <Link href="/demo" className="text-primary hover:underline">
-            usdc.me/@demo
+            usdc-me.xyz/@demo
           </Link>
         </p>
       </section>

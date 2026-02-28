@@ -38,7 +38,7 @@ function DashboardContent() {
   useEffect(() => {
     const welcomeHandle = searchParams.get("welcome")
     if (welcomeHandle) {
-      toast.success(`@${welcomeHandle} created! Welcome to USDC.me`)
+      toast.success(`@${welcomeHandle} created! Welcome to USDC-ME`)
       // Remove the param from the URL without triggering a re-render
       router.replace("/dashboard", { scroll: false })
     }

@@ -34,7 +34,7 @@ export default function App() {
         <h1 onClick={handleBackToShop} style={{ cursor: 'pointer' }}>
           Demo Shop
         </h1>
-        <span className="badge">Powered by USDC.me</span>
+        <span className="badge">Powered by USDC-ME</span>
       </header>
 
       <main className="app-main">

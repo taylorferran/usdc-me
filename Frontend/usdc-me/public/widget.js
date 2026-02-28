@@ -1,7 +1,7 @@
 /**
- * USDC.me Payment Widget
+ * USDC-ME Payment Widget
  *
- * Drop-in script for merchants to embed a "Pay with USDC.me" button.
+ * Drop-in script for merchants to embed a "Pay with USDC-ME" button.
  *
  * Usage:
  *   <div id="usdcme-pay" data-payment-id="pay_abc123"></div>
@@ -9,9 +9,9 @@
  *
  * Options (data attributes on the container element):
  *   data-payment-id  - (required) The payment request ID from the API
- *   data-label       - Button text (default: "Pay with USDC.me")
+ *   data-label       - Button text (default: "Pay with USDC-ME")
  *   data-theme       - "dark" or "light" (default: "dark")
- *   data-base-url    - Override the USDC.me app URL (default: same origin or http://localhost:3000)
+ *   data-base-url    - Override the USDC-ME app URL (default: same origin or http://localhost:3000)
  */
 (function () {
   'use strict';
@@ -27,11 +27,11 @@
 
     var paymentId = container.getAttribute('data-payment-id');
     if (!paymentId) {
-      console.error('[USDC.me] Missing data-payment-id on #usdcme-pay');
+      console.error('[USDC-ME] Missing data-payment-id on #usdcme-pay');
       return;
     }
 
-    var label = container.getAttribute('data-label') || 'Pay with USDC.me';
+    var label = container.getAttribute('data-label') || 'Pay with USDC-ME';
     var theme = container.getAttribute('data-theme') || 'dark';
     var baseUrl = container.getAttribute('data-base-url') || DEFAULT_BASE;
 
