@@ -12,6 +12,7 @@ import { WithdrawModal } from "@/components/withdraw-modal"
 import { AddFundsButton } from "@/components/add-funds-button"
 import { SpendIntentsCard } from "@/components/spend-intents-card"
 import { SendUsdcCard } from "@/components/send-usdc-card"
+import { QrScannerDialog } from "@/components/qr-scanner-dialog"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -59,6 +60,7 @@ export default function DashboardPage() {
         </div>
         {/* Action buttons */}
         <div className="flex items-center gap-2">
+          <QrScannerDialog />
           <AddFundsButton />
           <WithdrawModal />
           <SettleButton />

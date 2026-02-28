@@ -75,7 +75,7 @@ function TransactionRow({
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
+    <div className="flex h-64 flex-col items-center justify-center text-center">
       <p className="text-muted-foreground text-sm">{label}</p>
     </div>
   )
@@ -83,8 +83,8 @@ function EmptyState({ label }: { label: string }) {
 
 function SkeletonRows() {
   return (
-    <div className="divide-y">
-      {Array.from({ length: 3 }).map((_, i) => (
+    <div className="h-64 divide-y overflow-hidden">
+      {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 py-3">
           <Skeleton className="size-8 rounded-full" />
           <div className="flex-1 space-y-1">
