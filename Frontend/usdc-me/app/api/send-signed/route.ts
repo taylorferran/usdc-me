@@ -18,10 +18,25 @@ export async function POST(req: Request) {
     // Check sender has sufficient Gateway balance before accepting
     const gateway = createPlatformGateway()
     const balances = await gateway.getBalances(from as `0x${string}`)
-    const available = parseFloat(balances.gateway.formattedAvailable)
+    const gatewayBalance = parseFloat(balances.gateway.formattedAvailable)
+
+    // Subtract pending intents from available balance to prevent over-commitment
+    const { data: pendingSum } = await supabaseAdmin
+      .from("transactions")
+      .select("amount")
+      .eq("from_address", from)
+      .eq("status", "pending")
+      .in("type", ["send", "merchant_payment"])
+
+    const pendingTotal = (pendingSum ?? []).reduce(
+      (sum, row) => sum + parseFloat(row.amount),
+      0
+    )
+    const available = gatewayBalance - pendingTotal
+
     if (available < parseFloat(amount)) {
       return NextResponse.json(
-        { error: `Insufficient balance. Available: ${available.toFixed(2)} USDC, Required: ${amount} USDC` },
+        { error: `Insufficient balance. Available: ${available.toFixed(2)} USDC (gateway: ${gatewayBalance.toFixed(2)}, pending: ${pendingTotal.toFixed(2)}), Required: ${amount} USDC` },
         { status: 400 }
       )
     }
