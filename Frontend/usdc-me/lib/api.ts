@@ -54,7 +54,7 @@ export interface Intent {
   amount: string
   payer: string
   timestamp: string
-  status: "pending" | "settled"
+  status: "pending" | "settled" | "failed"
   transaction?: string
 }
 
@@ -120,7 +120,8 @@ export const sendSigned = (data: SendSignedPayload) =>
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
-export const getIntents = () => apiFetch<Intent[]>("/api/intents")
+export const getIntents = (address?: string) =>
+  apiFetch<Intent[]>(address ? `/api/intents?address=${address}` : "/api/intents")
 
 // ─── Settlement ───────────────────────────────────────────────────────────────
 

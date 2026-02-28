@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { RefreshIcon, CheckmarkCircle01Icon, Clock01Icon } from "@hugeicons/core-free-icons"
+import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
 import type { Intent } from "@/lib/api"
 
@@ -71,22 +72,24 @@ interface SettlementResult {
 }
 
 export function SpendIntentsCard() {
+  const { user } = useAuth()
   const [intents, setIntents] = useState<Intent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSettling, setIsSettling] = useState(false)
   const [lastSettlement, setLastSettlement] = useState<SettlementResult | null>(null)
 
   const fetchIntents = useCallback(async () => {
+    if (!user?.address) return
     setIsLoading(true)
     try {
-      const data = await api.getIntents()
+      const data = await api.getIntents(user.address)
       setIntents(data)
     } catch {
-      // silently fail — backend may not be running
+      // silently fail
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [user?.address])
 
   useEffect(() => {
     fetchIntents()

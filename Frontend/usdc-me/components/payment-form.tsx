@@ -22,6 +22,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Alert } from "@/components/ui/alert"
+import { CheckmarkCircle01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
   InputGroup,
   InputGroupAddon,
@@ -80,7 +82,7 @@ export function PaymentForm({ handle, recipientAddress }: PaymentFormProps) {
         signedPayload,
       })
 
-      const msg = `Paid @${handle} $${values.amount} ✓`
+      const msg = `Paid @${handle} $${values.amount}`
       setSuccess(msg)
       toast.success(msg)
       form.reset()
@@ -92,10 +94,23 @@ export function PaymentForm({ handle, recipientAddress }: PaymentFormProps) {
 
   if (success) {
     return (
-      <div className="space-y-4 text-center">
-        <div className="text-5xl">✅</div>
-        <p className="font-medium">{success}</p>
-        <Button variant="outline" onClick={() => setSuccess(null)} size="sm">
+      <div className="flex flex-col items-center gap-4 py-2 text-center">
+        <div className="animate-in zoom-in-50 fade-in duration-300 rounded-full bg-green-500/10 p-4">
+          <HugeiconsIcon
+            icon={CheckmarkCircle01Icon}
+            strokeWidth={1.5}
+            className="size-12 text-green-500"
+          />
+        </div>
+        <p className="animate-in fade-in slide-in-from-bottom-2 duration-300 font-medium">
+          {success}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSuccess(null)}
+          className="animate-in fade-in slide-in-from-bottom-2 duration-500"
+        >
           Make another payment
         </Button>
       </div>

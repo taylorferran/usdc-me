@@ -8,19 +8,34 @@ const CORS_HEADERS = {
 }
 
 export function middleware(request: NextRequest) {
-  // Handle CORS preflight
+  const { pathname } = request.nextUrl
+
+  // ── Admin route protection ───────────────────────────────────────────
+  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+    const session = request.cookies.get("admin_session")?.value
+    const adminPassword = process.env.ADMIN_PASSWORD
+
+    if (!adminPassword || session !== adminPassword) {
+      const loginUrl = new URL("/admin/login", request.url)
+      loginUrl.searchParams.set("next", pathname)
+      return NextResponse.redirect(loginUrl)
+    }
+  }
+
+  // ── CORS for API routes ──────────────────────────────────────────────
   if (request.method === "OPTIONS") {
     return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
   }
 
-  // Add CORS headers to API responses
   const response = NextResponse.next()
-  for (const [key, value] of Object.entries(CORS_HEADERS)) {
-    response.headers.set(key, value)
+  if (pathname.startsWith("/api/")) {
+    for (const [key, value] of Object.entries(CORS_HEADERS)) {
+      response.headers.set(key, value)
+    }
   }
   return response
 }
 
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/api/:path*", "/admin/:path*"],
 }

@@ -6,15 +6,20 @@ export const runtime = "nodejs"
 
 export async function POST() {
   try {
-    // Fetch all pending send transactions that have a stored payload
+    // Fetch all pending transactions (both send and merchant_payment)
     const { data: pending, error } = await supabaseAdmin
       .from("transactions")
-      .select("id, from_address, to_address, amount, intent_id, payload, accepted")
-      .eq("type", "send")
+      .select("id, type, from_address, to_address, amount, intent_id, payload, accepted")
+      .in("type", ["send", "merchant_payment"])
       .eq("status", "pending")
-      .not("payload", "is", null)
 
     if (error) throw error
+
+    console.log("[settle] query returned", pending?.length ?? 0, "rows")
+    pending?.forEach((r) =>
+      console.log("[settle] row", r.id, "type:", r.type, "payload null?", r.payload == null, "accepted null?", r.accepted == null)
+    )
+
     if (!pending || pending.length === 0) {
       return NextResponse.json({ message: "No pending intents to settle", settled: 0, failed: 0, totalAmount: 0, results: [] })
     }
@@ -26,6 +31,16 @@ export async function POST() {
 
     for (const intent of pending) {
       try {
+        if (intent.payload == null || intent.accepted == null) {
+          console.warn("[settle] skipping", intent.id, "— payload or accepted is null")
+          results.push({ intentId: intent.id, success: false, error: "Missing payload — transaction cannot be settled" })
+          await supabaseAdmin
+            .from("transactions")
+            .update({ status: "failed" })
+            .eq("id", intent.id)
+          continue
+        }
+
         const settlement = await facilitator.settle(intent.payload, intent.accepted)
 
         if (settlement.success) {

@@ -3,14 +3,23 @@ import { supabaseAdmin } from "@/lib/server/supabase"
 
 export const runtime = "nodejs"
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const { data, error } = await supabaseAdmin
+    const { searchParams } = new URL(req.url)
+    const address = searchParams.get("address")
+
+    let query = supabaseAdmin
       .from("transactions")
       .select("id, from_address, to_address, amount, status, tx_hash, created_at, intent_id")
       .in("type", ["send", "merchant_payment"])
       .order("created_at", { ascending: false })
       .limit(100)
+
+    if (address) {
+      query = query.or(`from_address.eq.${address},to_address.eq.${address}`)
+    }
+
+    const { data, error } = await query
 
     if (error) throw error
 
