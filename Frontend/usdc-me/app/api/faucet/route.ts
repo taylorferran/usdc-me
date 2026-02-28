@@ -13,7 +13,7 @@ import { privateKeyToAccount } from "viem/accounts"
 
 export const runtime = "nodejs"
 
-const FAUCET_AMOUNT = "2" // USDC
+const FAUCET_AMOUNT = "2.1" // USDC (extra 0.1 covers gas for deposit tx)
 const USDC_DECIMALS = 6
 
 const arcTestnet = defineChain({
