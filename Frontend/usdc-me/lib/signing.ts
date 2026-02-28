@@ -139,6 +139,30 @@ export async function deposit(privateKey: Hex, amount: string) {
     console.log("[deposit] Approve tx hash:", approveTx)
     const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTx })
     console.log("[deposit] Approve tx status:", approveReceipt.status)
+
+    // Wait for RPC nodes to sync the new allowance. drpc.org load-balances
+    // across multiple nodes — the deposit simulation can hit a stale node
+    // that hasn't seen the approve yet, causing a spurious revert.
+    console.log("[deposit] Waiting for RPC state to propagate...")
+    let synced = false
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const checkAllowance = await publicClient.readContract({
+        address: ARC_USDC_ADDRESS,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [account.address, ARC_GATEWAY_WALLET],
+      })
+      console.log(`[deposit] Allowance poll #${i + 1}:`, checkAllowance.toString())
+      if (checkAllowance >= requestedAmount) {
+        synced = true
+        break
+      }
+    }
+    if (!synced) {
+      throw new Error("Allowance not confirmed after approval — RPC may be lagging. Please retry.")
+    }
+    console.log("[deposit] Allowance confirmed, proceeding to deposit")
   }
 
   // Re-read balance after approve — on Arc, gas is paid in USDC so the
