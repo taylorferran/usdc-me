@@ -1,14 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
     "esModuleInterop": true,
     "strict": true,
     "outDir": "dist",
     "rootDir": "src",
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmit": true,
+    "composite": true
   },
   "include": ["src"]
 }

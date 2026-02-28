@@ -163,6 +163,49 @@ app.post('/api/wallet/:address/deposit', async (req, res) => {
   }
 });
 
+// POST /api/wallet/:address/withdraw
+app.post('/api/wallet/:address/withdraw', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const { amount, chain, recipient } = req.body;
+    const wallet = wallets.get(address);
+
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    if (!amount) {
+      return res.status(400).json({ error: 'Amount is required' });
+    }
+
+    const gateway = new GatewayClient({
+      chain: 'arcTestnet',
+      privateKey: wallet.privateKey,
+    });
+
+    console.log('Withdraw request:', { amount, chain, recipient });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const withdrawOptions: any = {};
+    if (chain) withdrawOptions.chain = chain;
+    if (recipient) withdrawOptions.recipient = recipient;
+    const result = await gateway.withdraw(amount, Object.keys(withdrawOptions).length > 0 ? withdrawOptions : undefined);
+    console.log('Withdraw result (full):', JSON.stringify(result, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+
+    res.json({
+      status: 'withdrawn',
+      txHash: result.mintTxHash,
+      amount: result.formattedAmount,
+      sourceChain: result.sourceChain,
+      destinationChain: result.destinationChain,
+      recipient: result.recipient,
+    });
+  } catch (error) {
+    console.error('Withdrawal failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Withdrawal failed', details: message });
+  }
+});
+
 // ─── x402 Payment Endpoint (Internal) ───────────────────────────────
 // Returns 402 with payment requirements, then VERIFY-ONLY on retry.
 // Settlement happens later via POST /api/settle.

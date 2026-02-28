@@ -43,6 +43,11 @@ function App() {
   // Deposit form state
   const [depositAmount, setDepositAmount] = useState('');
 
+  // Withdraw form state
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawChain, setWithdrawChain] = useState('arcTestnet');
+  const [withdrawRecipient, setWithdrawRecipient] = useState('');
+
   const createWallet = async () => {
     setLoading('create');
     setError(null);
@@ -93,6 +98,34 @@ function App() {
       if (!res.ok) throw new Error(data.details || data.error);
       setSuccess(`Deposited ${depositAmount} USDC to Gateway (tx: ${data.txHash})`);
       setDepositAmount('');
+      checkBalance();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const withdraw = async () => {
+    if (!address || !withdrawAmount) return;
+    setLoading('withdraw');
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`${API_URL}/wallet/${address}/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: withdrawAmount,
+          chain: withdrawChain,
+          ...(withdrawRecipient && { recipient: withdrawRecipient }),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.details || data.error);
+      setSuccess(`Withdrew ${data.amount} USDC to ${data.recipient.slice(0, 10)}... on ${data.destinationChain} (tx: ${data.txHash})`);
+      setWithdrawAmount('');
+      setWithdrawRecipient('');
       checkBalance();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -224,6 +257,48 @@ function App() {
               />
               <button onClick={deposit} disabled={loading === 'deposit' || !depositAmount}>
                 {loading === 'deposit' ? 'Depositing...' : 'Deposit'}
+              </button>
+            </div>
+          </div>
+
+          {/* Withdraw from Gateway */}
+          <div className="card">
+            <h3>Withdraw from Gateway</h3>
+            <p className="hint">
+              Move USDC from Gateway to any address. Leave recipient blank to withdraw to your own wallet. Cross-chain withdrawals require gas on the destination chain.
+            </p>
+            <input
+              type="text"
+              placeholder="Recipient address (0x...) — blank = your wallet"
+              value={withdrawRecipient}
+              onChange={(e) => setWithdrawRecipient(e.target.value)}
+            />
+            <select
+              value={withdrawChain}
+              onChange={(e) => setWithdrawChain(e.target.value)}
+            >
+              <option value="arcTestnet">Arc Testnet</option>
+              <option value="baseSepolia">Base Sepolia</option>
+              <option value="sepolia">Ethereum Sepolia</option>
+              <option value="polygonAmoy">Polygon Amoy</option>
+              <option value="avalancheFuji">Avalanche Fuji</option>
+              <option value="arbitrumSepolia">Arbitrum Sepolia</option>
+              <option value="optimismSepolia">Optimism Sepolia</option>
+              <option value="hyperEvmTestnet">HyperEVM Testnet</option>
+              <option value="seiAtlantic">Sei Atlantic</option>
+              <option value="sonicTestnet">Sonic Testnet</option>
+              <option value="unichainSepolia">Unichain Sepolia</option>
+              <option value="worldChainSepolia">World Chain Sepolia</option>
+            </select>
+            <div className="form-row">
+              <input
+                type="text"
+                placeholder="Amount (e.g. 5)"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+              />
+              <button onClick={withdraw} disabled={loading === 'withdraw' || !withdrawAmount}>
+                {loading === 'withdraw' ? 'Withdrawing...' : 'Withdraw'}
               </button>
             </div>
           </div>
