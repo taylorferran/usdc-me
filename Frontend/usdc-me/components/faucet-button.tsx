@@ -59,7 +59,7 @@ export function FaucetButton() {
 
       // Step 2: Wait for balance to be visible on-chain before depositing
       setStep("confirming")
-      await waitForBalance(user.address as `0x${string}`, 2_000_000n) // 2 USDC in atomic
+      await waitForBalance(user.address as `0x${string}`, BigInt(2_000_000)) // 2 USDC in atomic
 
       // Step 3: Deposit from wallet into Gateway
       setStep("depositing")
