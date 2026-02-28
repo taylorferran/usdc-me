@@ -48,9 +48,9 @@ function randomAddress(): Address {
   )
 }
 
-/** Random amount between $0.0001 and $0.01 as atomic USDC (6 decimals) */
+/** Random amount between $0.0001 and $0.001 as atomic USDC (6 decimals) */
 function randomAmount(): { display: string; atomic: string } {
-  const microDollars = Math.floor(Math.random() * 100) + 1 // 1–100 (i.e. $0.0001–$0.0100)
+  const microDollars = Math.floor(Math.random() * 10) + 1 // 1–10 (i.e. $0.0001–$0.0010)
   const display = (microDollars / 10000).toFixed(4)
   const atomic = (microDollars * 100).toString() // microDollars * 100 = atomic (6 decimals)
   return { display, atomic }

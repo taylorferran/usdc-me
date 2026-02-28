@@ -34,7 +34,7 @@ export async function POST() {
     const settledSenders: string[] = []
     const settledRecipients: string[] = []
 
-    const BATCH_SIZE = 50
+    const BATCH_SIZE = 500
 
     for (let i = 0; i < pending.length; i += BATCH_SIZE) {
       const chunk = pending.slice(i, i + BATCH_SIZE)
