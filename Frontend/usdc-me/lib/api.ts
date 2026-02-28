@@ -137,8 +137,34 @@ export const sendSigned = (data: SendSignedPayload) =>
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
-export const getIntents = (address?: string) =>
-  apiFetch<Intent[]>(address ? `/api/intents?address=${address}` : "/api/intents")
+export interface IntentsPage {
+  data: Intent[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+interface IntentsParams {
+  address?: string
+  status?: "pending" | "settled" | "failed"
+  page?: number
+  limit?: number
+}
+
+export function getIntents(address?: string): Promise<Intent[]> {
+  const url = address ? `/api/intents?address=${address}&limit=100` : "/api/intents?limit=100"
+  return apiFetch<IntentsPage>(url).then((r) => r.data)
+}
+
+export function getIntentsPaginated(params: IntentsParams = {}): Promise<IntentsPage> {
+  const q = new URLSearchParams()
+  if (params.address) q.set("address", params.address)
+  if (params.status) q.set("status", params.status)
+  if (params.page) q.set("page", String(params.page))
+  if (params.limit) q.set("limit", String(params.limit))
+  return apiFetch<IntentsPage>(`/api/intents?${q.toString()}`)
+}
 
 // ─── Settlement ───────────────────────────────────────────────────────────────
 

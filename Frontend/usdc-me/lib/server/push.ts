@@ -29,7 +29,7 @@ export async function sendPushToAddress(addresses: string[], payload: PushPayloa
   const message = JSON.stringify({
     title: payload.title,
     body: payload.body,
-    icon: payload.icon ?? "/icons/icon.svg",
+      icon: payload.icon ?? "/icons/icon-192.png",
     url: payload.url ?? "/dashboard",
   })
 

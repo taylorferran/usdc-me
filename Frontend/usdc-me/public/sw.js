@@ -1,4 +1,4 @@
-const CACHE_NAME = "usdc-me-v2"
+const CACHE_NAME = "usdc-me-v3"
 
 // Core app shell — cached on install
 const APP_SHELL = ["/", "/dashboard", "/manifest.webmanifest"]
@@ -87,8 +87,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: data.icon ?? "/icons/icon.svg",
-      badge: "/icons/icon.svg",
+      icon: data.icon ?? "/icons/icon-192.png",
+      badge: "/icons/icon-96.png",
       vibrate: [100, 50, 100],
       data: { url: data.url ?? "/dashboard" },
     })

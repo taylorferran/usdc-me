@@ -9,6 +9,15 @@ import { Spinner } from "@/components/ui/spinner"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import {
   Table,
   TableBody,
   TableCell,
@@ -31,6 +40,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
+import { getIntentsPaginated } from "@/lib/api"
 import type { Intent } from "@/lib/api"
 import { formatUsdc } from "@/lib/format"
 
@@ -65,6 +75,23 @@ function formatErrorReason(reason: string) {
   return reason
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Returns an array of page numbers and "ellipsis" markers for the pagination bar. */
+function buildPageNumbers(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+
+  const pages: (number | "ellipsis")[] = [1]
+
+  const left = Math.max(2, current - 1)
+  const right = Math.min(total - 1, current + 1)
+
+  if (left > 2) pages.push("ellipsis")
+  for (let p = left; p <= right; p++) pages.push(p)
+  if (right < total - 1) pages.push("ellipsis")
+
+  pages.push(total)
+  return pages
 }
 
 function formatDate(iso: string) {
@@ -106,9 +133,15 @@ const STATUS_STYLES: Record<string, string> = {
   failed: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
 }
 
+const PAGE_SIZE = 200
+
 export default function AdminPage() {
   const router = useRouter()
   const [intents, setIntents] = useState<Intent[]>([])
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [stats, setStats] = useState({ total: 0, pending: 0, settled: 0, failed: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [isSettling, setIsSettling] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
@@ -120,23 +153,59 @@ export default function AdminPage() {
   const isAutoSettlingRef = useRef(false)
   const handleSettleRef = useRef<(() => Promise<void>) | undefined>(undefined)
 
-  const fetchIntents = useCallback(async () => {
+  const fetchIntents = useCallback(async (targetPage = page) => {
     setIsLoading(true)
     try {
-      const res = await fetch("/api/intents")
-      if (!res.ok) throw new Error("Failed to fetch")
-      const data: Intent[] = await res.json()
-      setIntents(data)
+      const result = await getIntentsPaginated({
+        status: statusFilter === "all" ? undefined : statusFilter,
+        page: targetPage,
+        limit: PAGE_SIZE,
+      })
+      setIntents(result.data)
+      setTotalCount(result.total)
+      setTotalPages(result.totalPages)
     } catch {
       toast.error("Failed to load intents")
     } finally {
       setIsLoading(false)
     }
+  }, [page, statusFilter])
+
+  // Fetch overall counts for stat cards (unfiltered)
+  const fetchStats = useCallback(async () => {
+    try {
+      const [all, pending, settled, failed] = await Promise.all([
+        getIntentsPaginated({ limit: 1 }),
+        getIntentsPaginated({ status: "pending", limit: 1 }),
+        getIntentsPaginated({ status: "settled", limit: 1 }),
+        getIntentsPaginated({ status: "failed", limit: 1 }),
+      ])
+      setStats({
+        total: all.total,
+        pending: pending.total,
+        settled: settled.total,
+        failed: failed.total,
+      })
+    } catch {
+      // silently fail — stat cards are non-critical
+    }
   }, [])
 
+  // Reset to page 1 when filter changes, then fetch
   useEffect(() => {
-    fetchIntents()
-  }, [fetchIntents])
+    setPage(1)
+    fetchIntents(1)
+  }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch when page changes (but not on filter change — handled above)
+  useEffect(() => {
+    fetchIntents(page)
+  }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stats are fetched once and refreshed after settle
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
 
   const handleSettle = useCallback(async () => {
     setIsSettling(true)
@@ -158,13 +227,13 @@ export default function AdminPage() {
           : `Settled ${body.settled} intent(s)`
         toast.success(msg)
       }
-      await fetchIntents()
+      await Promise.all([fetchIntents(page), fetchStats()])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Settlement failed")
     } finally {
       setIsSettling(false)
     }
-  }, [fetchIntents])
+  }, [fetchIntents, fetchStats, page])
 
   // Keep ref in sync so the interval can always call the latest version
   useEffect(() => {
@@ -219,13 +288,8 @@ export default function AdminPage() {
     }
   }
 
-  const pending = intents.filter((i) => i.status === "pending").length
-  const settled = intents.filter((i) => i.status === "settled").length
-  const failed = intents.filter((i) => i.status === "failed").length
-
-  const filtered = intents
-    .filter((i) => statusFilter === "all" || i.status === statusFilter)
-    .sort((a, b) => {
+  // Client-side sort within the current page
+  const filtered = intents.sort((a, b) => {
       let cmp = 0
       if (sortField === "timestamp") cmp = a.timestamp.localeCompare(b.timestamp)
       if (sortField === "amount") cmp = Number(a.amount) - Number(b.amount)
@@ -261,7 +325,7 @@ export default function AdminPage() {
               {formatCountdown(secondsLeft)}
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchIntents} disabled={isLoading} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => { fetchIntents(page); fetchStats() }} disabled={isLoading} className="gap-2">
             <HugeiconsIcon
               icon={RefreshIcon}
               strokeWidth={2}
@@ -272,7 +336,7 @@ export default function AdminPage() {
           <Button
             size="sm"
             onClick={handleManualSettle}
-            disabled={isSettling || pending === 0}
+            disabled={isSettling || stats.pending === 0}
             className="gap-2"
           >
             {isSettling ? (
@@ -280,7 +344,7 @@ export default function AdminPage() {
             ) : (
               <HugeiconsIcon icon={CheckmarkCircle01Icon} strokeWidth={2} className="size-4" />
             )}
-            Settle Now {pending > 0 && `(${pending})`}
+            Settle Now {stats.pending > 0 && `(${stats.pending})`}
           </Button>
           <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
             <HugeiconsIcon icon={Logout01Icon} strokeWidth={2} className="size-4" />
@@ -293,25 +357,25 @@ export default function AdminPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Intents"
-          value={intents.length}
+          value={stats.total}
           icon={FilterIcon}
           colorClass="bg-primary/10 text-primary"
         />
         <StatCard
           label="Pending"
-          value={pending}
+          value={stats.pending}
           icon={Clock01Icon}
           colorClass="bg-amber-500/10 text-amber-500"
         />
         <StatCard
           label="Settled"
-          value={settled}
+          value={stats.settled}
           icon={CheckmarkCircle01Icon}
           colorClass="bg-green-500/10 text-green-500"
         />
         <StatCard
           label="Failed"
-          value={failed}
+          value={stats.failed}
           icon={Cancel01Icon}
           colorClass="bg-red-500/10 text-red-500"
         />
@@ -323,7 +387,7 @@ export default function AdminPage() {
           <div>
             <CardTitle>Intents</CardTitle>
             <CardDescription>
-              {filtered.length} of {intents.length} total
+              {totalCount === 0 ? "No intents" : `${((page - 1) * PAGE_SIZE) + 1}–${Math.min(page * PAGE_SIZE, totalCount)} of ${totalCount}`}
             </CardDescription>
           </div>
           {/* Status filter */}
@@ -334,7 +398,7 @@ export default function AdminPage() {
                 size="sm"
                 variant={statusFilter === s ? "default" : "ghost"}
                 className="capitalize"
-                onClick={() => setStatusFilter(s)}
+                onClick={() => { setStatusFilter(s as StatusFilter) }}
               >
                 {s}
               </Button>
@@ -469,6 +533,49 @@ export default function AdminPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="border-t px-6 py-4">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={(e) => { e.preventDefault(); if (page > 1) setPage((p) => p - 1) }}
+                      aria-disabled={page === 1 || isLoading}
+                      className={page === 1 || isLoading ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+
+                  {buildPageNumbers(page, totalPages).map((item, i) =>
+                    item === "ellipsis" ? (
+                      <PaginationItem key={`ellipsis-${i}`}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    ) : (
+                      <PaginationItem key={item}>
+                        <PaginationLink
+                          isActive={item === page}
+                          onClick={(e) => { e.preventDefault(); setPage(item) }}
+                          className="cursor-pointer"
+                        >
+                          {item}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )
+                  )}
+
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={(e) => { e.preventDefault(); if (page < totalPages) setPage((p) => p + 1) }}
+                      aria-disabled={page === totalPages || isLoading}
+                      className={page === totalPages || isLoading ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
             </div>
           )}
         </CardContent>

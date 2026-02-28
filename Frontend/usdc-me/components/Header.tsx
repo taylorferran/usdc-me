@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -30,8 +31,16 @@ export default function Header() {
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2">
+          <Image
+            src="/icons/logo.png"
+            alt="USDC.me logo"
+            width={28}
+            height={28}
+            className="size-7"
+            priority
+          />
           <span className="text-primary text-xl font-bold tracking-tight">
-            USDC<span className="text-foreground/60">.me</span>
+            USDC<span className="text-foreground/60">-ME</span>
           </span>
         </Link>
 
