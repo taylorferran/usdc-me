@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
 
 import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
+import type { MerchantAccount } from "@/lib/api"
+import { MerchantDashboard } from "@/components/merchant-dashboard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,23 +26,46 @@ const FRONTEND_URL =
   process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
 
 export default function MerchantPage() {
-  const { user, isLoading } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const router = useRouter()
 
+  // Existing merchant accounts
+  const [merchants, setMerchants] = useState<MerchantAccount[] | null>(null)
+  const [loadingMerchants, setLoadingMerchants] = useState(true)
+
+  // Registration form
+  const [showRegister, setShowRegister] = useState(false)
   const [storeName, setStoreName] = useState("")
   const [callbackUrl, setCallbackUrl] = useState("")
   const [registering, setRegistering] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [merchant, setMerchant] = useState<api.MerchantResponse | null>(null)
+
+  // Just-registered merchant (show API key once)
+  const [justRegistered, setJustRegistered] = useState<api.MerchantResponse | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
+  const fetchMerchants = useCallback(async () => {
+    try {
+      const res = await api.getMyMerchants()
+      setMerchants(res.merchants)
+    } catch {
+      setMerchants([])
+    } finally {
+      setLoadingMerchants(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!authLoading && !user) {
       router.replace("/login?next=/merchant")
     }
-  }, [user, isLoading, router])
+  }, [user, authLoading, router])
 
-  if (isLoading) {
+  useEffect(() => {
+    if (user) fetchMerchants()
+  }, [user, fetchMerchants])
+
+  if (authLoading || loadingMerchants) {
     return (
       <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
         <Skeleton className="h-8 w-48" />
@@ -69,7 +94,7 @@ export default function MerchantPage() {
         wallet_address: user.address,
         ...(callbackUrl.trim() && { callback_url: callbackUrl.trim() }),
       })
-      setMerchant(res)
+      setJustRegistered(res)
       toast.success("Merchant account created!")
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Registration failed"
@@ -79,18 +104,22 @@ export default function MerchantPage() {
     }
   }
 
-  const widgetSnippet = `<div id="usdcme-pay"
-     data-payment-id="YOUR_PAYMENT_ID"
-     data-base-url="${FRONTEND_URL}">
-</div>
-<script src="${FRONTEND_URL}/widget.js"><\/script>`
+  const handleDoneSetup = () => {
+    setJustRegistered(null)
+    setShowRegister(false)
+    setStoreName("")
+    setCallbackUrl("")
+    setLoadingMerchants(true)
+    fetchMerchants()
+  }
 
-  const createPaymentSnippet = merchant
-    ? `fetch("${FRONTEND_URL}/api/payments/create", {
+  // ── Just-registered: show API key + setup instructions ──
+  if (justRegistered) {
+    const createPaymentSnippet = `fetch("${FRONTEND_URL}/api/payments/create", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-API-Key": "${merchant.api_key}"
+    "X-API-Key": "${justRegistered.api_key}"
   },
   body: JSON.stringify({
     amount: "10",
@@ -104,16 +133,13 @@ export default function MerchantPage() {
   // data.payment_url — direct link for customer
   console.log(data);
 });`
-    : ""
 
-  // ── Registered state ──
-  if (merchant) {
     return (
       <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
         <div>
           <h1 className="text-2xl font-bold">Merchant Setup</h1>
           <p className="text-muted-foreground text-sm">
-            {merchant.name} — @{user.handle}
+            {justRegistered.name} — @{user.handle}
           </p>
         </div>
 
@@ -121,18 +147,18 @@ export default function MerchantPage() {
           <CardHeader>
             <CardTitle className="text-base">Your API Key</CardTitle>
             <CardDescription>
-              Keep this secret. Use it server-side to create payment requests.
+              Keep this secret. This is the only time it will be shown.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="bg-muted rounded-lg p-3 font-mono text-xs break-all">
-              {merchant.api_key}
+              {justRegistered.api_key}
             </div>
             <Button
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => copy(merchant.api_key, "apiKey")}
+              onClick={() => copy(justRegistered.api_key, "apiKey")}
             >
               {copied === "apiKey" ? "Copied!" : "Copy API Key"}
             </Button>
@@ -142,7 +168,7 @@ export default function MerchantPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              1. Create a Payment Request
+              Create a Payment Request
             </CardTitle>
             <CardDescription>
               Call this from your server when a customer checks out.
@@ -164,43 +190,21 @@ export default function MerchantPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              2. Add the Widget to Your Site
-            </CardTitle>
+            <CardTitle className="text-base">Webhook Callback</CardTitle>
             <CardDescription>
-              Paste this HTML where you want the &quot;Pay with USDC.me&quot;
-              button. Replace YOUR_PAYMENT_ID with the payment_id from step 1.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <pre className="bg-muted overflow-auto rounded-lg p-3 text-xs leading-relaxed">
-              {widgetSnippet}
-            </pre>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copy(widgetSnippet, "widget")}
-            >
-              {copied === "widget" ? "Copied!" : "Copy Widget Code"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              3. Listen for Payment
-            </CardTitle>
-            <CardDescription>
-              The widget fires a DOM event when the customer pays.
+              When a customer pays, we POST to your callback URL:
             </CardDescription>
           </CardHeader>
           <CardContent>
             <pre className="bg-muted overflow-auto rounded-lg p-3 text-xs leading-relaxed">
-{`document.addEventListener("usdcme:payment", (e) => {
-  console.log("Paid!", e.detail);
-  // { paymentId, intentId, status: "paid" }
-});`}
+{`{
+  "event": "payment.completed",
+  "payment_id": "pay_abc123",
+  "amount": "10.00",
+  "payer_address": "0x...",
+  "intent_id": "uuid",
+  "timestamp": "2025-01-15T10:30:45.123Z"
+}`}
             </pre>
             <p className="text-muted-foreground mt-3 text-xs">
               Or poll{" "}
@@ -212,24 +216,19 @@ export default function MerchantPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Payment Page URL</CardTitle>
-            <CardDescription>
-              Direct customers to this URL pattern:
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-muted rounded-lg p-3 font-mono text-xs">
-              {FRONTEND_URL}/pay/YOUR_PAYMENT_ID
-            </div>
-          </CardContent>
-        </Card>
-
-        <Button variant="outline" asChild>
-          <Link href="/dashboard">Back to Dashboard</Link>
-        </Button>
+        <Button onClick={handleDoneSetup}>Go to Merchant Dashboard</Button>
       </div>
+    )
+  }
+
+  // ── Has merchants + not registering: show dashboard ──
+  if (merchants && merchants.length > 0 && !showRegister) {
+    return (
+      <MerchantDashboard
+        merchants={merchants}
+        userHandle={user.handle}
+        onRegisterNew={() => setShowRegister(true)}
+      />
     )
   }
 
@@ -298,9 +297,15 @@ export default function MerchantPage() {
         </CardContent>
       </Card>
 
-      <Button variant="outline" asChild>
-        <Link href="/dashboard">Back to Dashboard</Link>
-      </Button>
+      {merchants && merchants.length > 0 ? (
+        <Button variant="outline" onClick={() => setShowRegister(false)}>
+          Back to Merchant Dashboard
+        </Button>
+      ) : (
+        <Button variant="outline" asChild>
+          <Link href="/dashboard">Back to Dashboard</Link>
+        </Button>
+      )}
     </div>
   )
 }

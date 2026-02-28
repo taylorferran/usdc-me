@@ -192,3 +192,63 @@ export const payPaymentRequest = (
       body: JSON.stringify({ from, signedPayload }),
     }
   )
+
+// ─── Merchant Dashboard ─────────────────────────────────────────────────────
+
+export interface MerchantAccount {
+  id: string
+  name: string
+  email: string
+  wallet_address: string
+  callback_url: string | null
+  created_at: string
+}
+
+export interface MerchantPayment {
+  id: string
+  amount: string
+  description: string | null
+  status: "pending" | "paid" | "expired"
+  payer_address: string | null
+  intent_id: string | null
+  expires_at: string
+  created_at: string
+}
+
+export interface PaymentSummary {
+  total_payments: number
+  total_paid: number
+  total_pending: number
+  total_expired: number
+  revenue: string
+  pending_amount: string
+}
+
+export interface MerchantPaymentsResponse {
+  payments: MerchantPayment[]
+  summary: PaymentSummary
+}
+
+export const getMyMerchants = () =>
+  apiFetch<{ merchants: MerchantAccount[] }>("/api/merchants/me")
+
+export const getMerchantPayments = (
+  merchantId: string,
+  options?: { status?: string }
+) => {
+  const params = new URLSearchParams()
+  if (options?.status) params.set("status", options.status)
+  const qs = params.toString()
+  return apiFetch<MerchantPaymentsResponse>(
+    `/api/merchants/${merchantId}/payments${qs ? `?${qs}` : ""}`
+  )
+}
+
+export const updateMerchant = (
+  merchantId: string,
+  data: { name?: string; callback_url?: string }
+) =>
+  apiFetch<{ id: string; name: string; callback_url: string | null }>(
+    `/api/merchants/${merchantId}`,
+    { method: "PATCH", body: JSON.stringify(data) }
+  )
