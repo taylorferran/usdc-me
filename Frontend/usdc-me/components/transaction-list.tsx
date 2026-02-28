@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { RefreshIcon } from "@hugeicons/core-free-icons"
 import { supabase } from "@/lib/supabase"
+import { formatUsdc } from "@/lib/format"
 
 interface Transaction {
   id: string
@@ -65,7 +66,7 @@ function TransactionRow({
               : "text-sm font-semibold"
           }
         >
-          {prefix}${tx.amount}
+          {prefix}${formatUsdc(tx.amount)}
         </span>
         <StatusBadge status={tx.status} />
       </div>

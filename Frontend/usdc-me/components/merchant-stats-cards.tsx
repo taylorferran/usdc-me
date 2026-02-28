@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PaymentSummary, BalanceResponse } from "@/lib/api"
+import { formatUsdc } from "@/lib/format"
 
 interface MerchantStatsCardsProps {
   summary: PaymentSummary | null
@@ -67,12 +68,12 @@ export function MerchantStatsCards({
       <StatCard
         label="Pending"
         value={String(summary?.total_pending ?? 0)}
-        sub={summary ? `$${summary.pending_amount} USDC` : undefined}
+        sub={summary ? `$${formatUsdc(summary.pending_amount)} USDC` : undefined}
         isLoading={isLoading}
       />
       <StatCard
         label="Wallet Balance"
-        value={balance ? `$${balance.gateway.available}` : "$0.00"}
+        value={balance ? `$${formatUsdc(balance.gateway.available)}` : "$0.00"}
         sub="Gateway available"
         isLoading={isLoading}
       />

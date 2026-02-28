@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#2563eb"/>
+  <!-- Dollar circle ring -->
+  <circle cx="256" cy="256" r="172" fill="none" stroke="white" stroke-width="28" opacity="0.3"/>
+  <!-- USDC "U" letter -->
+  <text
+    x="256"
+    y="310"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="220"
+    font-weight="800"
+    text-anchor="middle"
+    fill="white"
+  >$</text>
+</svg>

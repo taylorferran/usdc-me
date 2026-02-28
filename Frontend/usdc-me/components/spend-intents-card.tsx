@@ -13,6 +13,7 @@ import { RefreshIcon, CheckmarkCircle01Icon, Clock01Icon } from "@hugeicons/core
 import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
 import type { Intent } from "@/lib/api"
+import { formatUsdc } from "@/lib/format"
 
 function truncate(addr: string) {
   if (!addr || addr.length < 12) return addr
@@ -32,7 +33,7 @@ function IntentRow({ intent }: { intent: Intent }) {
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="text-sm font-semibold">${intent.amount} USDC</span>
+        <span className="text-sm font-semibold">${formatUsdc(intent.amount)} USDC</span>
         {isPending ? (
           <Badge variant="outline" className="gap-1 text-xs text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-700">
             <HugeiconsIcon icon={Clock01Icon} className="size-3" />
@@ -107,7 +108,7 @@ export function SpendIntentsCard() {
       } else {
         setLastSettlement({ settled: res.settled, failed: res.failed, totalAmount: res.totalAmount })
         toast.success(
-          `${res.settled} intent${res.settled !== 1 ? "s" : ""} → 1 batch on Arc ✓ ($${res.totalAmount} USDC)`
+          `${res.settled} intent${res.settled !== 1 ? "s" : ""} → 1 batch on Arc ✓ ($${formatUsdc(res.totalAmount)} USDC)`
         )
       }
       await fetchIntents()
@@ -194,7 +195,7 @@ export function SpendIntentsCard() {
             )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total USDC</span>
-              <span className="font-mono font-medium">${lastSettlement.totalAmount}</span>
+              <span className="font-mono font-medium">${formatUsdc(lastSettlement.totalAmount)}</span>
             </div>
           </div>
         )}

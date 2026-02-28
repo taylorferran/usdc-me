@@ -56,6 +56,7 @@ export interface Intent {
   timestamp: string
   status: "pending" | "settled" | "failed"
   transaction?: string
+  errorReason?: string
 }
 
 export interface SettleResponse {

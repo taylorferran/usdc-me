@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { formatUsdc } from "@/lib/format"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/status-badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -91,7 +92,7 @@ export function MerchantPaymentTable({
                   {p.description ?? "\u2014"}
                 </TableCell>
                 <TableCell className="text-right font-medium text-sm whitespace-nowrap">
-                  ${p.amount}
+                  ${formatUsdc(p.amount)}
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={p.status} />

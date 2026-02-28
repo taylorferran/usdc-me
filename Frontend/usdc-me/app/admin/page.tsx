@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Table,
   TableBody,
@@ -23,10 +24,12 @@ import {
   Clock01Icon,
   Cancel01Icon,
   FilterIcon,
+  Alert02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
 import type { Intent } from "@/lib/api"
+import { formatUsdc } from "@/lib/format"
 
 // Returns the timestamp of the next :00 or :30 on the clock
 function getNextSettleAt(): number {
@@ -378,15 +381,64 @@ export default function AdminPage() {
                       <TableCell className="font-mono text-xs">{truncate(intent.from)}</TableCell>
                       <TableCell className="font-mono text-xs">{truncate(intent.to)}</TableCell>
                       <TableCell className="font-medium">
-                        {Number(intent.amount).toFixed(2)} USDC
+                        {formatUsdc(intent.amount)} USDC
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={STATUS_STYLES[intent.status] ?? ""}
-                        >
-                          {intent.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className={STATUS_STYLES[intent.status] ?? ""}
+                          >
+                            {intent.status}
+                          </Badge>
+                          {intent.status === "failed" && intent.errorReason && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="text-red-500 hover:text-red-600 focus:outline-none"
+                                  aria-label="Failure reason"
+                                >
+                                  <HugeiconsIcon
+                                    icon={Alert02Icon}
+                                    strokeWidth={2}
+                                    className="size-3.5"
+                                  />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                className="max-w-xs wrap-break-word text-xs"
+                              >
+                                <p className="font-medium text-red-400 mb-0.5">Failure reason</p>
+                                <p>{intent.errorReason}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {intent.status === "failed" && !intent.errorReason && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground focus:outline-none"
+                                  aria-label="No reason recorded"
+                                >
+                                  <HugeiconsIcon
+                                    icon={Alert02Icon}
+                                    strokeWidth={2}
+                                    className="size-3.5 opacity-40"
+                                  />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                className="max-w-xs text-xs"
+                              >
+                                No failure reason recorded (occurred before logging was added)
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
                         {formatDate(intent.timestamp)}

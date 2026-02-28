@@ -16,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import * as api from "@/lib/api"
+import { formatUsdc } from "@/lib/format"
 
 export function SettleButton() {
   const [isSettling, setIsSettling] = useState(false)
@@ -28,7 +29,7 @@ export function SettleButton() {
         toast.info("No pending intents to settle.")
       } else {
         toast.success(
-          `${res.settled} intent${res.settled !== 1 ? "s" : ""} → 1 tx on Arc ✓ ($${res.totalAmount} USDC)`
+          `${res.settled} intent${res.settled !== 1 ? "s" : ""} → 1 tx on Arc ✓ ($${formatUsdc(res.totalAmount)} USDC)`
         )
       }
     } catch (err) {

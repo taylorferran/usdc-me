@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
+import { formatUsdc } from "@/lib/format"
 import { signX402Payment } from "@/lib/signing"
 import { ARC_CHAIN_ID } from "@/lib/wallet"
 import { Button } from "@/components/ui/button"
@@ -77,7 +78,7 @@ function PaymentContent() {
         signedPayload,
       )
       setPaid(true)
-      toast.success(`Paid ${payment.amount} USDC!`)
+      toast.success(`Paid ${formatUsdc(payment.amount)} USDC!`)
 
       // Notify widget opener via postMessage if embedded
       if (isEmbed && window.opener) {
@@ -169,7 +170,7 @@ function PaymentContent() {
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-3xl font-bold">
-              ${payment.amount}
+              ${formatUsdc(payment.amount)}
             </CardTitle>
             <CardDescription>USDC</CardDescription>
           </CardHeader>
@@ -223,7 +224,7 @@ function PaymentContent() {
                       Paying...
                     </>
                   ) : (
-                    `Pay $${payment.amount}`
+                    `Pay $${formatUsdc(payment.amount)}`
                   )}
                 </Button>
                 <p className="text-muted-foreground text-center text-xs">

@@ -32,11 +32,12 @@ export async function POST() {
     for (const intent of pending) {
       try {
         if (intent.payload == null || intent.accepted == null) {
-          console.warn("[settle] skipping", intent.id, "— payload or accepted is null")
-          results.push({ intentId: intent.id, success: false, error: "Missing payload — transaction cannot be settled" })
+          const reason = "Missing payload — transaction cannot be settled"
+          console.warn("[settle] skipping", intent.id, "—", reason)
+          results.push({ intentId: intent.id, success: false, error: reason })
           await supabaseAdmin
             .from("transactions")
-            .update({ status: "failed" })
+            .update({ status: "failed", error_reason: reason })
             .eq("id", intent.id)
           continue
         }
@@ -56,20 +57,21 @@ export async function POST() {
             })
             .eq("id", intent.id)
         } else {
-          results.push({ intentId: intent.id, success: false, error: settlement.errorReason })
+          const reason = settlement.errorReason ?? "Settlement rejected by facilitator"
+          results.push({ intentId: intent.id, success: false, error: reason })
 
           await supabaseAdmin
             .from("transactions")
-            .update({ status: "failed" })
+            .update({ status: "failed", error_reason: reason })
             .eq("id", intent.id)
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error"
-        results.push({ intentId: intent.id, success: false, error: msg })
+        const reason = err instanceof Error ? err.message : "Unknown error"
+        results.push({ intentId: intent.id, success: false, error: reason })
 
         await supabaseAdmin
           .from("transactions")
-          .update({ status: "failed" })
+          .update({ status: "failed", error_reason: reason })
           .eq("id", intent.id)
       }
     }

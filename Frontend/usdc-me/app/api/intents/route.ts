@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
     let query = supabaseAdmin
       .from("transactions")
-      .select("id, from_address, to_address, amount, status, tx_hash, created_at, intent_id")
+      .select("id, from_address, to_address, amount, status, tx_hash, created_at, intent_id, error_reason")
       .in("type", ["send", "merchant_payment"])
       .order("created_at", { ascending: false })
       .limit(100)
@@ -33,6 +33,7 @@ export async function GET(req: Request) {
       timestamp: row.created_at,
       status: row.status,
       transaction: row.tx_hash ?? undefined,
+      errorReason: row.error_reason ?? undefined,
     }))
 
     return NextResponse.json(intents)

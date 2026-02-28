@@ -11,6 +11,7 @@ import { RefreshIcon, Copy01Icon, Tick01Icon } from "@hugeicons/core-free-icons"
 import type { BalanceResponse } from "@/lib/api"
 import * as api from "@/lib/api"
 import { useAuth } from "@/contexts/auth-context"
+import { formatUsdc } from "@/lib/format"
 
 function BalanceLine({
   label,
@@ -74,13 +75,9 @@ export function BalanceDisplay() {
     fetchBalance()
   }, [fetchBalance])
 
-  const pending =
-    balance
-      ? (
-          parseFloat(balance.gateway.total) -
-          parseFloat(balance.gateway.available)
-        ).toFixed(2)
-      : "0.00"
+  const pending = balance
+    ? formatUsdc(parseFloat(balance.gateway.total) - parseFloat(balance.gateway.available))
+    : "0.00"
 
   return (
     <Card>
@@ -140,14 +137,14 @@ export function BalanceDisplay() {
           <>
             <BalanceLine
               label="Gateway Available"
-              value={balance?.gateway.available ?? "—"}
+              value={balance ? formatUsdc(balance.gateway.available) : "—"}
               isLoading={isLoading}
               highlight
             />
             <Separator />
             <BalanceLine
               label="Gateway Total"
-              value={balance?.gateway.total ?? "—"}
+              value={balance ? formatUsdc(balance.gateway.total) : "—"}
               isLoading={isLoading}
             />
             <BalanceLine
@@ -158,7 +155,7 @@ export function BalanceDisplay() {
             <Separator />
             <BalanceLine
               label="Wallet (on-chain)"
-              value={balance?.wallet.balance ?? "—"}
+              value={balance ? formatUsdc(balance.wallet.balance) : "—"}
               isLoading={isLoading}
             />
           </>
