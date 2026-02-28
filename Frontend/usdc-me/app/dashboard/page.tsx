@@ -13,6 +13,7 @@ import { AddFundsButton } from "@/components/add-funds-button"
 import { SpendIntentsCard } from "@/components/spend-intents-card"
 import { SendUsdcCard } from "@/components/send-usdc-card"
 import { QrScannerDialog } from "@/components/qr-scanner-dialog"
+import { FaucetButton } from "@/components/faucet-button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -68,6 +69,7 @@ function DashboardContent() {
         </div>
         {/* Action buttons */}
         <div className="flex items-center gap-2">
+          <FaucetButton />
           <QrScannerDialog />
           <AddFundsButton />
           <WithdrawModal />

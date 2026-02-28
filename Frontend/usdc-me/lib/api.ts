@@ -81,6 +81,22 @@ export interface WithdrawResponse {
   recipient: string
 }
 
+// ─── Faucet ──────────────────────────────────────────────────────────────────
+
+export interface FaucetResponse {
+  status: string
+  txHash: string
+  amount: string
+  from: string
+  to: string
+}
+
+export const faucetFund = (address: string) =>
+  apiFetch<FaucetResponse>("/api/faucet", {
+    method: "POST",
+    body: JSON.stringify({ address }),
+  })
+
 // ─── User ─────────────────────────────────────────────────────────────────────
 
 export const getUser = (handle: string) =>
