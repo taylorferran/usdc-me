@@ -41,11 +41,14 @@ export async function getSupportedKinds(): Promise<SupportedKind[]> {
   return supportedKindsCache
 }
 
+const ARC_RPC_URL = "https://arc-testnet.drpc.org"
+
 /** Read-only gateway using a throwaway key — only for balance queries. */
 export function createPlatformGateway(): GatewayClient {
   return new GatewayClient({
     chain: "arcTestnet",
     privateKey: generatePrivateKey(),
+    rpcUrl: ARC_RPC_URL,
   })
 }
 
@@ -54,5 +57,6 @@ export function createUserGateway(privateKey: `0x${string}`): GatewayClient {
   return new GatewayClient({
     chain: "arcTestnet",
     privateKey,
+    rpcUrl: ARC_RPC_URL,
   })
 }

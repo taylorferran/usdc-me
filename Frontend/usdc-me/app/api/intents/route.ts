@@ -8,7 +8,7 @@ export async function GET() {
     const { data, error } = await supabaseAdmin
       .from("transactions")
       .select("id, from_address, to_address, amount, status, tx_hash, created_at, intent_id")
-      .eq("type", "send")
+      .in("type", ["send", "merchant_payment"])
       .order("created_at", { ascending: false })
       .limit(100)
 

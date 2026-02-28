@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getFacilitator, getSupportedKinds, ARC_NETWORK, ARC_USDC_ADDRESS } from "@/lib/server/gateway"
+import { getFacilitator, getSupportedKinds, createPlatformGateway, ARC_NETWORK, ARC_USDC_ADDRESS } from "@/lib/server/gateway"
 import { supabaseAdmin } from "@/lib/server/supabase"
 
 export const runtime = "nodejs"
@@ -42,6 +42,22 @@ export async function POST(
     }
 
     const amount = payment.amount
+
+    // Check payer has sufficient Gateway balance before accepting
+    try {
+      const gateway = createPlatformGateway()
+      const balances = await gateway.getBalances(from as `0x${string}`)
+      const available = parseFloat(balances.gateway.formattedAvailable)
+      if (available < parseFloat(amount)) {
+        return NextResponse.json(
+          { error: `Insufficient balance. Available: ${available.toFixed(2)} USDC, Required: ${amount} USDC` },
+          { status: 400 }
+        )
+      }
+    } catch {
+      // If balance check fails, don't block — verification will still catch invalid signatures
+    }
+
     const amountAtomic = Math.round(parseFloat(amount) * 1e6).toString()
     const supportedKinds = await getSupportedKinds()
     const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK)
