@@ -7,13 +7,14 @@ import { useAuth } from "@/contexts/auth-context"
 import { BalanceDisplay } from "@/components/balance-display"
 import { QRCodeDisplay } from "@/components/qr-code-display"
 import { TransactionList } from "@/components/transaction-list"
-import { SettleButton } from "@/components/settle-button"
 import { WithdrawModal } from "@/components/withdraw-modal"
 import { AddFundsButton } from "@/components/add-funds-button"
+
 import { SpendIntentsCard } from "@/components/spend-intents-card"
 import { SendUsdcCard } from "@/components/send-usdc-card"
 import { QrScannerDialog } from "@/components/qr-scanner-dialog"
 import { FaucetButton } from "@/components/faucet-button"
+import { PushNotificationManager } from "@/components/push-notification-manager"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -69,11 +70,11 @@ function DashboardContent() {
         </div>
         {/* Action buttons */}
         <div className="flex items-center gap-2">
+          <PushNotificationManager />
           <FaucetButton />
           <QrScannerDialog />
           <AddFundsButton />
           <WithdrawModal />
-          <SettleButton />
         </div>
       </div>
 

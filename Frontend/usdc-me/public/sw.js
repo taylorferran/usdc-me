@@ -1,4 +1,4 @@
-const CACHE_NAME = "usdc-me-v1"
+const CACHE_NAME = "usdc-me-v2"
 
 // Core app shell — cached on install
 const APP_SHELL = ["/", "/dashboard", "/manifest.webmanifest"]
@@ -75,5 +75,44 @@ self.addEventListener("fetch", (event) => {
       // Return cached immediately if we have it, but still refresh
       return cached ?? networkFetch
     })
+  )
+})
+
+// ── Push notifications ────────────────────────────────────────────────────────
+self.addEventListener("push", (event) => {
+  if (!event.data) return
+
+  const data = event.data.json()
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon ?? "/icons/icon.svg",
+      badge: "/icons/icon.svg",
+      vibrate: [100, 50, 100],
+      data: { url: data.url ?? "/dashboard" },
+    })
+  )
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+
+  const url = event.notification.data?.url ?? "/dashboard"
+
+  event.waitUntil(
+    clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((windowClients) => {
+        // Focus an existing window if one is already open
+        for (const client of windowClients) {
+          if (client.url.includes(self.location.origin) && "focus" in client) {
+            client.navigate(url)
+            return client.focus()
+          }
+        }
+        // Otherwise open a new window
+        return clients.openWindow(url)
+      })
   )
 })

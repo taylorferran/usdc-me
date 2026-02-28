@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { useForm } from "react-hook-form"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
@@ -187,7 +189,11 @@ function WithdrawForm({ onSuccess }: { onSuccess: () => void }) {
               Withdrawing…
             </>
           ) : (
-            "Withdraw USDC →"
+            <>
+              Withdraw USDC
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-4" />
+            </>
+
           )}
         </Button>
       </form>

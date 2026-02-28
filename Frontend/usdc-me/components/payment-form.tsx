@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Alert } from "@/components/ui/alert"
-import { CheckmarkCircle01Icon } from "@hugeicons/core-free-icons"
+import { CheckmarkCircle01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   InputGroup,
@@ -170,7 +170,10 @@ export function PaymentForm({ handle, recipientAddress }: PaymentFormProps) {
                   Signing…
                 </>
               ) : amountValue ? (
-                `Pay $${amountValue} →`
+                <>
+                  Pay ${amountValue}
+                  <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-4" />
+                </>
               ) : (
                 "Enter an amount"
               )}

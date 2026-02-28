@@ -8,6 +8,8 @@ import { isAddress } from "viem"
 import type { Address, Hex } from "viem"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -197,8 +199,9 @@ export function SendUsdcCard() {
             <p className="font-medium text-green-600 dark:text-green-400">
               Sent ${lastTx.amount} USDC{lastTx.handle ? ` to @${lastTx.handle}` : ""}
             </p>
-            <p className="text-muted-foreground font-mono text-xs mt-0.5 break-all">
-              → {lastTx.to}
+            <p className="text-muted-foreground font-mono text-xs mt-0.5 break-all flex items-center gap-1">
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3 shrink-0" />
+              {lastTx.to}
             </p>
           </div>
         )}

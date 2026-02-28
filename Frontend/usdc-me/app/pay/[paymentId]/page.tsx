@@ -23,6 +23,8 @@ import {
 import { Alert } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { CheckmarkCircle01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 
 export default function PaymentPage() {
   return (
@@ -177,13 +179,19 @@ function PaymentContent() {
           <CardContent className="space-y-4">
             {/* Paid state */}
             {isPaid && (
-              <div className="space-y-3 text-center">
-                <div className="text-5xl">&#10003;</div>
-                <p className="font-medium text-green-500">
+              <div className="flex flex-col items-center gap-4 py-2 text-center">
+                <div className="animate-in zoom-in-50 fade-in duration-300 rounded-full bg-green-500/10 p-4">
+                  <HugeiconsIcon
+                    icon={CheckmarkCircle01Icon}
+                    strokeWidth={1.5}
+                    className="size-12 text-green-500"
+                  />
+                </div>
+                <p className="animate-in fade-in slide-in-from-bottom-2 duration-300 font-medium">
                   Payment successful!
                 </p>
                 {payment.redirect_url && !isEmbed && (
-                  <p className="text-muted-foreground text-xs">
+                  <p className="animate-in fade-in slide-in-from-bottom-2 duration-500 text-muted-foreground text-xs">
                     Redirecting back to merchant...
                   </p>
                 )}

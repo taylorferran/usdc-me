@@ -4,6 +4,8 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import {
   Dialog,
   DialogContent,
@@ -95,7 +97,11 @@ export function AddFundsButton() {
                   Depositing…
                 </>
               ) : (
-                "Deposit to Gateway →"
+                <>
+                  Deposit to Gateway
+                  <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-4" />
+                </>
+
               )}
             </Button>
           </div>

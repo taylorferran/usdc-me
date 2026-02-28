@@ -25,6 +25,9 @@ import {
   Cancel01Icon,
   FilterIcon,
   Alert02Icon,
+  ArrowUp01Icon,
+  ArrowDown01Icon,
+  Sorting01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
@@ -56,6 +59,12 @@ type StatusFilter = "all" | "pending" | "settled" | "failed"
 function truncate(addr: string) {
   if (!addr || addr.length < 12) return addr
   return `${addr.slice(0, 10)}…${addr.slice(-8)}`
+}
+
+function formatErrorReason(reason: string) {
+  return reason
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function formatDate(iso: string) {
@@ -225,9 +234,11 @@ export default function AdminPage() {
     })
 
   const SortIcon = ({ field }: { field: SortField }) => (
-    <span className="text-muted-foreground ml-1 text-xs">
-      {sortField === field ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-    </span>
+    <HugeiconsIcon
+      icon={sortField === field ? (sortDir === "asc" ? ArrowUp01Icon : ArrowDown01Icon) : Sorting01Icon}
+      strokeWidth={2}
+      className="ml-1 inline-block size-3 text-muted-foreground"
+    />
   )
 
   return (
@@ -408,10 +419,15 @@ export default function AdminPage() {
                               </TooltipTrigger>
                               <TooltipContent
                                 side="top"
-                                className="max-w-xs wrap-break-word text-xs"
+                                className="max-w-xs bg-popover text-popover-foreground border border-border shadow-md p-3"
+                                arrowClassName="bg-popover fill-popover border-border"
                               >
-                                <p className="font-medium text-red-400 mb-0.5">Failure reason</p>
-                                <p>{intent.errorReason}</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-destructive mb-1">
+                                  Failure reason
+                                </p>
+                                <p className="text-xs font-medium">
+                                  {formatErrorReason(intent.errorReason)}
+                                </p>
                               </TooltipContent>
                             </Tooltip>
                           )}
@@ -432,9 +448,15 @@ export default function AdminPage() {
                               </TooltipTrigger>
                               <TooltipContent
                                 side="top"
-                                className="max-w-xs text-xs"
+                                className="max-w-xs bg-popover text-popover-foreground border border-border shadow-md p-3"
+                                arrowClassName="bg-popover fill-popover border-border"
                               >
-                                No failure reason recorded (occurred before logging was added)
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                                  No reason recorded
+                                </p>
+                                <p className="text-xs">
+                                  Failed before error logging was added.
+                                </p>
                               </TooltipContent>
                             </Tooltip>
                           )}

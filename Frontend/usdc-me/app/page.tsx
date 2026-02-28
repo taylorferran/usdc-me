@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 
 const features = [
   {
@@ -46,8 +48,11 @@ export default function Home() {
         </p>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
-          <Button size="lg" className="w-full sm:w-auto" asChild>
-            <Link href="/register">Create your handle →</Link>
+          <Button size="lg" className="w-full sm:w-auto gap-2" asChild>
+            <Link href="/register">
+              Create your handle
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-4" />
+            </Link>
           </Button>
           <Button size="lg" variant="outline" className="w-full sm:w-auto" asChild>
             <Link href="/login">Log in</Link>

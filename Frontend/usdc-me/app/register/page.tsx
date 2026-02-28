@@ -2,6 +2,8 @@
 
 import { Suspense, useState } from "react"
 import Link from "next/link"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -205,7 +207,11 @@ function RegisterForm() {
                         Creating…
                       </>
                     ) : (
-                      "Create my handle →"
+                      <>
+                        Create my handle
+                        <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-4" />
+                      </>
+
                     )}
                   </Button>
                 </form>

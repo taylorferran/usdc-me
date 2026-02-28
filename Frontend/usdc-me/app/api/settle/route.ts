@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { getFacilitator } from "@/lib/server/gateway"
 import { supabaseAdmin } from "@/lib/server/supabase"
+import { sendPushToAddress } from "@/lib/server/push"
+import { formatUsdc } from "@/lib/format"
 
 export const runtime = "nodejs"
 
@@ -29,6 +31,10 @@ export async function POST() {
     const results: Array<{ intentId: string; success: boolean; transaction?: string; error?: string }> = []
     let totalAmount = 0
 
+    // Collect addresses to notify after all settlements complete
+    const settledSenders: string[] = []
+    const settledRecipients: string[] = []
+
     for (const intent of pending) {
       try {
         if (intent.payload == null || intent.accepted == null) {
@@ -56,6 +62,9 @@ export async function POST() {
               settlement_id: settlementId,
             })
             .eq("id", intent.id)
+
+          if (intent.from_address) settledSenders.push(intent.from_address)
+          if (intent.to_address) settledRecipients.push(intent.to_address)
         } else {
           const reason = settlement.errorReason ?? "Settlement rejected by facilitator"
           results.push({ intentId: intent.id, success: false, error: reason })
@@ -76,7 +85,24 @@ export async function POST() {
       }
     }
 
+    // Fire push notifications (non-blocking)
     const succeeded = results.filter((r) => r.success).length
+    if (succeeded > 0) {
+      const uniqueSenders = [...new Set(settledSenders)]
+      const uniqueRecipients = [...new Set(settledRecipients)]
+
+      sendPushToAddress(uniqueSenders, {
+        title: "Payment settled ✓",
+        body: `${succeeded} intent${succeeded !== 1 ? "s" : ""} settled — $${formatUsdc(totalAmount)} USDC on-chain`,
+        url: "/dashboard",
+      }).catch(() => {})
+
+      sendPushToAddress(uniqueRecipients, {
+        title: "You received USDC 💵",
+        body: `$${formatUsdc(totalAmount)} USDC settled to your wallet`,
+        url: "/dashboard",
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       settlementId,

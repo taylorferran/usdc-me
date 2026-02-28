@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { RefreshIcon, CheckmarkCircle01Icon, Clock01Icon } from "@hugeicons/core-free-icons"
+import { RefreshIcon, CheckmarkCircle01Icon, Clock01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
 import type { Intent } from "@/lib/api"
@@ -25,8 +25,10 @@ function IntentRow({ intent }: { intent: Intent }) {
   return (
     <div className="flex items-center justify-between gap-3 py-3">
       <div className="min-w-0 flex-1">
-        <p className="font-mono text-xs font-medium leading-none">
-          {truncate(intent.from || "unknown")} → {truncate(intent.to)}
+        <p className="font-mono text-xs font-medium leading-none flex items-center gap-1">
+          {truncate(intent.from || "unknown")}
+          <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3 text-muted-foreground shrink-0" />
+          {truncate(intent.to)}
         </p>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {new Date(intent.timestamp).toLocaleString()}
