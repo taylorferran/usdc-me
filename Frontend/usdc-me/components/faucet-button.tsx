@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { type Hex, erc20Abi } from "viem"
+import { type Hex, erc20Abi, formatUnits } from "viem"
 import { createPublicClient, http } from "viem"
 
 import { useAuth } from "@/contexts/auth-context"
@@ -22,12 +22,12 @@ const STEP_LABELS: Record<Step, string> = {
   done: "Funded!",
 }
 
-/** Poll until the on-chain USDC balance is at least `minAmount` (atomic units). */
+/** Poll until the on-chain USDC balance is at least `minAmount` (atomic units). Returns the balance. */
 async function waitForBalance(
   address: `0x${string}`,
   minAmount: bigint,
   maxAttempts = 10
-) {
+): Promise<bigint> {
   const client = createPublicClient({ chain: arcTestnet, transport: http() })
   for (let i = 0; i < maxAttempts; i++) {
     const bal = await client.readContract({
@@ -36,11 +36,14 @@ async function waitForBalance(
       functionName: "balanceOf",
       args: [address],
     })
-    if (bal >= minAmount) return
-    await new Promise((r) => setTimeout(r, 2000))
+    if (bal >= minAmount) return bal
+    await new Promise((r) => setTimeout(r, 3000))
   }
   throw new Error("Timed out waiting for USDC to arrive in wallet")
 }
+
+/** Gas buffer to reserve for approve + deposit txs (0.5 USDC in atomic units). */
+const GAS_BUFFER = BigInt(500_000)
 
 export function FaucetButton() {
   const { user, privateKey } = useAuth()
@@ -59,14 +62,21 @@ export function FaucetButton() {
 
       // Step 2: Wait for balance to be visible on-chain before depositing
       setStep("confirming")
-      await waitForBalance(user.address as `0x${string}`, BigInt(2_500_000)) // 2.5 USDC in atomic
+      const balance = await waitForBalance(user.address as `0x${string}`, BigInt(2_000_000))
 
-      // Step 3: Deposit from wallet into Gateway
+      // Extra wait to ensure state is fully propagated across RPC nodes
+      await new Promise((r) => setTimeout(r, 5000))
+
+      // Step 3: Deposit (balance minus gas buffer) into Gateway
+      const depositAmount = balance - GAS_BUFFER
+      if (depositAmount <= BigInt(0)) throw new Error("Balance too low after reserving gas")
+      const depositStr = formatUnits(depositAmount, 6)
+
       setStep("depositing")
-      await deposit(privateKey as Hex, "2")
+      await deposit(privateKey as Hex, depositStr)
 
       setStep("done")
-      toast.success("Funded! 2 USDC deposited to your Gateway balance.")
+      toast.success(`Funded! ${depositStr} USDC deposited to your Gateway balance.`)
       setTimeout(() => setStep("idle"), 3000)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Funding failed"
