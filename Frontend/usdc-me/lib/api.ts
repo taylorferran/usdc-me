@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
+// Empty string = same origin (Next.js API routes).
+// Override with NEXT_PUBLIC_API_URL if the backend is a separate service.
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession()

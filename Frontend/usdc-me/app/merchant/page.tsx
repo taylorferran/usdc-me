@@ -22,7 +22,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 const FRONTEND_URL =
   process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
 
 export default function MerchantPage() {
   const { user, isLoading } = useAuth()
@@ -87,7 +86,7 @@ export default function MerchantPage() {
 <script src="${FRONTEND_URL}/widget.js"><\/script>`
 
   const createPaymentSnippet = merchant
-    ? `fetch("${API_URL}/api/payments/create", {
+    ? `fetch("${FRONTEND_URL}/api/payments/create", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",

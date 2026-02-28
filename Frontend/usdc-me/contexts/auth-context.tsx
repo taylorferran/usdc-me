@@ -13,8 +13,6 @@ import { supabase } from "@/lib/supabase"
 import { generatePrivateKey, getAddressFromKey } from "@/lib/wallet"
 import { encryptPrivateKey, decryptPrivateKey, type EncryptedKeyBlob } from "@/lib/crypto"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
-
 const SESSION_KEY = "usdc_pk"
 
 function cacheKey(key: Hex) {
@@ -277,7 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       newPassword: string
     ) => {
       // 1. Fetch recovery blob from backend (no auth needed)
-      const startRes = await fetch(`${API_URL}/api/recover/start`, {
+      const startRes = await fetch("/api/recover/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -308,7 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const newEncryptedBlob = await encryptPrivateKey(key, newPassword)
 
       // 4. Complete recovery via backend
-      const completeRes = await fetch(`${API_URL}/api/recover/complete`, {
+      const completeRes = await fetch("/api/recover/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
