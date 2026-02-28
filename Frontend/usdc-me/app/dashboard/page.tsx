@@ -10,6 +10,8 @@ import { TransactionList } from "@/components/transaction-list"
 import { SettleButton } from "@/components/settle-button"
 import { WithdrawModal } from "@/components/withdraw-modal"
 import { AddFundsButton } from "@/components/add-funds-button"
+import { SpendIntentsCard } from "@/components/spend-intents-card"
+import { SendUsdcCard } from "@/components/send-usdc-card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -71,7 +73,13 @@ export default function DashboardPage() {
         <QRCodeDisplay handle={user.handle} />
       </div>
 
-      {/* Transactions */}
+      {/* Middle row — send + intents */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SendUsdcCard />
+        <SpendIntentsCard />
+      </div>
+
+      {/* Transactions — full width */}
       <TransactionList userAddress={user.address} />
     </div>
   )

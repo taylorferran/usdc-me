@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { RefreshIcon } from "@hugeicons/core-free-icons"
+import { RefreshIcon, Copy01Icon, Tick01Icon } from "@hugeicons/core-free-icons"
 import type { BalanceResponse } from "@/lib/api"
 import * as api from "@/lib/api"
 import { useAuth } from "@/contexts/auth-context"
@@ -36,11 +37,24 @@ function BalanceLine({
   )
 }
 
+function truncate(addr: string) {
+  if (!addr || addr.length < 12) return addr
+  return `${addr.slice(0, 10)}…${addr.slice(-8)}`
+}
+
 export function BalanceDisplay() {
   const { user } = useAuth()
   const [balance, setBalance] = useState<BalanceResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopyAddress() {
+    if (!user?.address) return
+    await navigator.clipboard.writeText(user.address)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const fetchBalance = useCallback(async () => {
     if (!user?.address) return
@@ -85,6 +99,41 @@ export function BalanceDisplay() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Wallet address */}
+        {user?.address && (
+          <>
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                Your Wallet Address
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs break-all">
+                  {truncate(user.address)}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleCopyAddress}
+                      aria-label="Copy wallet address"
+                      className="shrink-0"
+                    >
+                      <HugeiconsIcon
+                        icon={copied ? Tick01Icon : Copy01Icon}
+                        strokeWidth={2}
+                        className={`size-3.5 ${copied ? "text-green-500" : ""}`}
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{copied ? "Copied!" : "Copy address"}</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+            <Separator />
+          </>
+        )}
+
         {error ? (
           <p className="text-destructive text-sm">{error}</p>
         ) : (
