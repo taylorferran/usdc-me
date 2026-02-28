@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import './App.css';
+import { useWallet } from './context/WalletContext';
+import { signX402Payment, deposit as clientDeposit } from './lib/signing';
+import { ARC_GATEWAY_WALLET } from './lib/wallet';
 
 const API_URL = 'http://localhost:3001/api';
+const ARC_CHAIN_ID = 5042002;
 
 interface WalletBalance {
   address: string;
@@ -28,7 +32,15 @@ interface SettlementResult {
 }
 
 function App() {
-  const [address, setAddress] = useState<string | null>(null);
+  const wallet = useWallet();
+
+  // Auth form state
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authHandle, setAuthHandle] = useState('');
+  const [isSignup, setIsSignup] = useState(true);
+
+  // App state
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [intents, setIntents] = useState<Intent[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
@@ -43,28 +55,30 @@ function App() {
   // Deposit form state
   const [depositAmount, setDepositAmount] = useState('');
 
-  const createWallet = async () => {
-    setLoading('create');
+  const handleAuth = async () => {
+    if (!authEmail || !authPassword) return;
+    if (isSignup && !authHandle) return;
+    setLoading('auth');
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/wallet/create`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to create wallet');
-      const data = await res.json();
-      setAddress(data.address);
-      setBalance(null);
+      if (isSignup) {
+        await wallet.signup(authEmail, authPassword, authHandle);
+      } else {
+        await wallet.login(authEmail, authPassword);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Auth failed');
     } finally {
       setLoading(null);
     }
   };
 
   const checkBalance = async () => {
-    if (!address) return;
+    if (!wallet.address) return;
     setLoading('balance');
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/wallet/${address}/balance`);
+      const res = await fetch(`${API_URL}/wallet/${wallet.address}/balance`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.details || 'Failed to fetch balance');
@@ -78,49 +92,60 @@ function App() {
     }
   };
 
-  const deposit = async () => {
-    if (!address || !depositAmount) return;
+  const handleDeposit = async () => {
+    if (!wallet.privateKey || !depositAmount) return;
     setLoading('deposit');
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`${API_URL}/wallet/${address}/deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: depositAmount }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.details || data.error);
-      setSuccess(`Deposited ${depositAmount} USDC to Gateway (tx: ${data.txHash})`);
+      const result = await clientDeposit(wallet.privateKey, depositAmount);
+      setSuccess(`Deposited ${depositAmount} USDC to Gateway (tx: ${result.depositTxHash})`);
       setDepositAmount('');
       checkBalance();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Deposit failed');
     } finally {
       setLoading(null);
     }
   };
 
   const send = async () => {
-    if (!address || !sendTo || !sendAmount) return;
+    if (!wallet.privateKey || !wallet.address || !sendTo || !sendAmount) return;
     setLoading('send');
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`${API_URL}/send`, {
+      const amountAtomic = Math.round(parseFloat(sendAmount) * 1e6).toString();
+
+      // Sign the x402 payload in the browser
+      const signedPayload = await signX402Payment(
+        wallet.privateKey,
+        sendTo as `0x${string}`,
+        amountAtomic,
+        ARC_GATEWAY_WALLET,
+        ARC_CHAIN_ID,
+      );
+
+      // Send pre-signed payload to backend for verification
+      const res = await fetch(`${API_URL}/send-signed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: address, to: sendTo, amount: sendAmount }),
+        body: JSON.stringify({
+          from: wallet.address,
+          to: sendTo,
+          amount: sendAmount,
+          signedPayload,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.details || data.error);
+      if (!res.ok) throw new Error(data.reason || data.error);
       setSuccess(`Sent ${sendAmount} USDC to ${sendTo.slice(0, 10)}... (intent queued)`);
       setSendTo('');
       setSendAmount('');
       checkBalance();
       fetchIntents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Send failed');
     } finally {
       setLoading(null);
     }
@@ -164,174 +189,208 @@ function App() {
 
   const pendingCount = intents.filter((i) => i.status === 'pending').length;
 
+  // ── Not logged in: show auth form ──
+  if (!wallet.isUnlocked) {
+    return (
+      <div className="container">
+        <h1>USDC.me</h1>
+        <p className="subtitle">Universal USDC Payments on Arc via x402</p>
+
+        <div className="card">
+          <h3>{isSignup ? 'Sign Up' : 'Log In'}</h3>
+          <p className="hint">
+            {isSignup
+              ? 'Creates a wallet encrypted with your password. We never see your private key.'
+              : 'Decrypts your wallet locally in the browser.'}
+          </p>
+          {isSignup && (
+            <input
+              type="text"
+              placeholder="Username (e.g. alice)"
+              value={authHandle}
+              onChange={(e) => setAuthHandle(e.target.value)}
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Email"
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={authPassword}
+            onChange={(e) => setAuthPassword(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+          />
+          <button onClick={handleAuth} disabled={loading === 'auth' || !authEmail || !authPassword || (isSignup && !authHandle)}>
+            {loading === 'auth'
+              ? (isSignup ? 'Creating wallet...' : 'Decrypting...')
+              : (isSignup ? 'Sign Up' : 'Log In')}
+          </button>
+          <button
+            className="secondary"
+            onClick={() => { setIsSignup(!isSignup); setError(null); }}
+          >
+            {isSignup ? 'Already have an account? Log in' : 'Need an account? Sign up'}
+          </button>
+        </div>
+
+        {error && <p className="error">{error}</p>}
+      </div>
+    );
+  }
+
+  // ── Logged in: show wallet + payment UI ──
   return (
     <div className="container">
       <h1>USDC.me</h1>
-      <p className="subtitle">Universal USDC Payments on Arc via x402</p>
+      <p className="subtitle">Signed in as @{wallet.handle || wallet.email}</p>
 
-      {!address ? (
-        <div className="card">
-          <button onClick={createWallet} disabled={loading === 'create'}>
-            {loading === 'create' ? 'Creating...' : 'Create Wallet'}
-          </button>
-          <p className="hint">
-            Creates a developer-controlled wallet on Arc Testnet
-          </p>
+      {/* Wallet Info */}
+      <div className="card">
+        <div className="wallet-info">
+          <label>Your Wallet Address</label>
+          <div className="address">{wallet.address}</div>
         </div>
-      ) : (
-        <>
-          {/* Wallet Info */}
-          <div className="card">
-            <div className="wallet-info">
-              <label>Your Wallet Address</label>
-              <div className="address">{address}</div>
+
+        <button onClick={checkBalance} disabled={loading === 'balance'}>
+          {loading === 'balance' ? 'Checking...' : 'Check Balance'}
+        </button>
+
+        {balance && (
+          <div className="balances">
+            <div className="balance-row">
+              <span>Wallet USDC</span>
+              <span className="amount">{balance.wallet.balance}</span>
             </div>
-
-            <button onClick={checkBalance} disabled={loading === 'balance'}>
-              {loading === 'balance' ? 'Checking...' : 'Check Balance'}
-            </button>
-
-            {balance && (
-              <div className="balances">
-                <div className="balance-row">
-                  <span>Wallet USDC</span>
-                  <span className="amount">{balance.wallet.balance}</span>
-                </div>
-                <div className="balance-row">
-                  <span>Gateway Total</span>
-                  <span className="amount">{balance.gateway.total}</span>
-                </div>
-                <div className="balance-row">
-                  <span>Gateway Available</span>
-                  <span className="amount highlight">{balance.gateway.available}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Deposit to Gateway */}
-          <div className="card">
-            <h3>Deposit to Gateway</h3>
-            <p className="hint">
-              Move USDC from your wallet into Gateway (required before sending via x402)
-            </p>
-            <div className="form-row">
-              <input
-                type="text"
-                placeholder="Amount (e.g. 5)"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-              />
-              <button onClick={deposit} disabled={loading === 'deposit' || !depositAmount}>
-                {loading === 'deposit' ? 'Depositing...' : 'Deposit'}
-              </button>
+            <div className="balance-row">
+              <span>Gateway Total</span>
+              <span className="amount">{balance.gateway.total}</span>
+            </div>
+            <div className="balance-row">
+              <span>Gateway Available</span>
+              <span className="amount highlight">{balance.gateway.available}</span>
             </div>
           </div>
+        )}
+      </div>
 
-          {/* Send via x402 */}
-          <div className="card">
-            <h3>Send USDC (x402)</h3>
-            <p className="hint">
-              Signs an x402 spend intent off-chain (instant, gasless)
-            </p>
-            <input
-              type="text"
-              placeholder="Recipient address (0x...)"
-              value={sendTo}
-              onChange={(e) => setSendTo(e.target.value)}
-            />
-            <div className="form-row">
-              <input
-                type="text"
-                placeholder="Amount (e.g. 1.5)"
-                value={sendAmount}
-                onChange={(e) => setSendAmount(e.target.value)}
-              />
-              <button onClick={send} disabled={loading === 'send' || !sendTo || !sendAmount}>
-                {loading === 'send' ? 'Sending...' : 'Send'}
-              </button>
-            </div>
-          </div>
-
-          {/* Intents + Settlement */}
-          <div className="card">
-            <div className="intents-header">
-              <h3>
-                Spend Intents
-                {pendingCount > 0 && (
-                  <span className="badge">{pendingCount} pending</span>
-                )}
-              </h3>
-              <button className="secondary small" onClick={fetchIntents}>
-                Refresh
-              </button>
-            </div>
-
-            {intents.length === 0 ? (
-              <p className="hint">No intents yet. Send USDC to create one.</p>
-            ) : (
-              <div className="intents-list">
-                {intents.map((intent) => (
-                  <div
-                    key={intent.id}
-                    className={`intent-row ${intent.status === 'settled' ? 'settled' : ''}`}
-                  >
-                    <div className="intent-info">
-                      <span className="intent-amount">{intent.amount} USDC</span>
-                      <span className="intent-addresses">
-                        {intent.from ? `${intent.from.slice(0, 8)}...` : '???'} →{' '}
-                        {intent.to.slice(0, 8)}...
-                      </span>
-                    </div>
-                    <span className={`intent-status ${intent.status}`}>
-                      {intent.status === 'settled' ? 'Settled' : 'Pending'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Settle Now button */}
-            <button
-              className="settle-btn"
-              onClick={settleNow}
-              disabled={loading === 'settle' || pendingCount === 0}
-            >
-              {loading === 'settle'
-                ? 'Settling...'
-                : `Settle Now (${pendingCount} intent${pendingCount !== 1 ? 's' : ''})`}
-            </button>
-            <p className="hint">
-              Submits all pending intents to Gateway for on-chain batch settlement on Arc
-            </p>
-
-            {lastSettlement && (
-              <div className="settlement-result">
-                <div className="settlement-stat">
-                  <span>{lastSettlement.settled} intents</span>
-                  <span>→ 1 batch on Arc</span>
-                </div>
-                <div className="settlement-stat">
-                  <span>Total settled</span>
-                  <span className="amount">{lastSettlement.totalAmount} USDC</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button
-            className="secondary"
-            onClick={() => {
-              setAddress(null);
-              setBalance(null);
-              setIntents([]);
-              setLastSettlement(null);
-            }}
-          >
-            Create New Wallet
+      {/* Deposit to Gateway */}
+      <div className="card">
+        <h3>Deposit to Gateway</h3>
+        <p className="hint">
+          Move USDC from your wallet into Gateway (required before sending via x402).
+          Signed locally in your browser.
+        </p>
+        <div className="form-row">
+          <input
+            type="text"
+            placeholder="Amount (e.g. 5)"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value)}
+          />
+          <button onClick={handleDeposit} disabled={loading === 'deposit' || !depositAmount}>
+            {loading === 'deposit' ? 'Depositing...' : 'Deposit'}
           </button>
-        </>
-      )}
+        </div>
+      </div>
+
+      {/* Send via x402 */}
+      <div className="card">
+        <h3>Send USDC (x402)</h3>
+        <p className="hint">
+          Signs an x402 spend intent in your browser (instant, gasless)
+        </p>
+        <input
+          type="text"
+          placeholder="Recipient address (0x...)"
+          value={sendTo}
+          onChange={(e) => setSendTo(e.target.value)}
+        />
+        <div className="form-row">
+          <input
+            type="text"
+            placeholder="Amount (e.g. 1.5)"
+            value={sendAmount}
+            onChange={(e) => setSendAmount(e.target.value)}
+          />
+          <button onClick={send} disabled={loading === 'send' || !sendTo || !sendAmount}>
+            {loading === 'send' ? 'Signing...' : 'Send'}
+          </button>
+        </div>
+      </div>
+
+      {/* Intents + Settlement */}
+      <div className="card">
+        <div className="intents-header">
+          <h3>
+            Spend Intents
+            {pendingCount > 0 && (
+              <span className="badge">{pendingCount} pending</span>
+            )}
+          </h3>
+          <button className="secondary small" onClick={fetchIntents}>
+            Refresh
+          </button>
+        </div>
+
+        {intents.length === 0 ? (
+          <p className="hint">No intents yet. Send USDC to create one.</p>
+        ) : (
+          <div className="intents-list">
+            {intents.map((intent) => (
+              <div
+                key={intent.id}
+                className={`intent-row ${intent.status === 'settled' ? 'settled' : ''}`}
+              >
+                <div className="intent-info">
+                  <span className="intent-amount">{intent.amount} USDC</span>
+                  <span className="intent-addresses">
+                    {intent.from ? `${intent.from.slice(0, 8)}...` : '???'} →{' '}
+                    {intent.to.slice(0, 8)}...
+                  </span>
+                </div>
+                <span className={`intent-status ${intent.status}`}>
+                  {intent.status === 'settled' ? 'Settled' : 'Pending'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Settle Now button */}
+        <button
+          className="settle-btn"
+          onClick={settleNow}
+          disabled={loading === 'settle' || pendingCount === 0}
+        >
+          {loading === 'settle'
+            ? 'Settling...'
+            : `Settle Now (${pendingCount} intent${pendingCount !== 1 ? 's' : ''})`}
+        </button>
+        <p className="hint">
+          Submits all pending intents to Gateway for on-chain batch settlement on Arc
+        </p>
+
+        {lastSettlement && (
+          <div className="settlement-result">
+            <div className="settlement-stat">
+              <span>{lastSettlement.settled} intents</span>
+              <span>→ 1 batch on Arc</span>
+            </div>
+            <div className="settlement-stat">
+              <span>Total settled</span>
+              <span className="amount">{lastSettlement.totalAmount} USDC</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <button className="secondary" onClick={wallet.logout}>
+        Log Out
+      </button>
 
       {success && <p className="success">{success}</p>}
       {error && <p className="error">{error}</p>}

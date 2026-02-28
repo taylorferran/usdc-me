@@ -2,9 +2,15 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { generatePrivateKey } from 'viem/accounts';
-import type { Hex } from 'viem';
 import { GatewayClient } from '@circlefin/x402-batching/client';
 import { BatchFacilitatorClient } from '@circlefin/x402-batching/server';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const app = express();
 app.use(cors());
@@ -15,9 +21,6 @@ const ARC_USDC_ADDRESS = '0x3600000000000000000000000000000000000000' as const;
 const ARC_NETWORK = 'eip155:5042002';
 const PORT = process.env.PORT || 3001;
 
-// In-memory wallet store
-const wallets = new Map<string, { privateKey: Hex; address: string }>();
-
 // Pending intents — verified but NOT yet settled on-chain
 interface PendingIntent {
   id: string;
@@ -27,10 +30,8 @@ interface PendingIntent {
   payer: string;
   timestamp: string;
   status: 'pending' | 'settled';
-  // Raw x402 data needed to settle later
   payload: any;
   accepted: any;
-  // Filled after settlement
   transaction?: string;
 }
 const intents: PendingIntent[] = [];
@@ -48,6 +49,10 @@ const settlements: Settlement[] = [];
 // Initialize BatchFacilitatorClient for x402 verification + settlement
 const facilitator = new BatchFacilitatorClient();
 
+// Platform-level GatewayClient for read-only operations (balance queries).
+// Uses a throwaway key — never signs anything user-facing.
+let platformGateway: GatewayClient;
+
 // Fetch supported payment kinds from Gateway on startup
 interface SupportedKind {
   scheme: string;
@@ -61,6 +66,13 @@ interface SupportedKind {
 let supportedKinds: SupportedKind[] = [];
 
 async function initGateway() {
+  // Create platform gateway with throwaway key (only for balance reads)
+  const throwawayKey = generatePrivateKey();
+  platformGateway = new GatewayClient({
+    chain: 'arcTestnet',
+    privateKey: throwawayKey,
+  });
+
   try {
     const supported = await facilitator.getSupported();
     supportedKinds = supported.kinds as SupportedKind[];
@@ -82,41 +94,14 @@ async function initGateway() {
   }
 }
 
-// ─── Wallet Endpoints ────────────────────────────────────────────────
+// ─── Balance Endpoint (no private key needed) ───────────────────────
 
-// POST /api/wallet/create
-app.post('/api/wallet/create', async (_req, res) => {
-  try {
-    const privateKey = generatePrivateKey();
-    const gateway = new GatewayClient({
-      chain: 'arcTestnet',
-      privateKey,
-    });
-
-    wallets.set(gateway.address, { privateKey, address: gateway.address });
-    res.json({ address: gateway.address });
-  } catch (error) {
-    console.error('Wallet creation failed:', error);
-    res.status(500).json({ error: 'Failed to create wallet' });
-  }
-});
-
-// GET /api/wallet/:address/balance
 app.get('/api/wallet/:address/balance', async (req, res) => {
   try {
     const { address } = req.params;
-    const wallet = wallets.get(address);
 
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-
-    const gateway = new GatewayClient({
-      chain: 'arcTestnet',
-      privateKey: wallet.privateKey,
-    });
-
-    const balances = await gateway.getBalances();
+    // Use platform gateway to query any address's balances
+    const balances = await platformGateway.getBalances(address as `0x${string}`);
 
     res.json({
       address,
@@ -133,194 +118,105 @@ app.get('/api/wallet/:address/balance', async (req, res) => {
   }
 });
 
-// POST /api/wallet/:address/deposit
-app.post('/api/wallet/:address/deposit', async (req, res) => {
-  try {
-    const { address } = req.params;
-    const { amount } = req.body;
-    const wallet = wallets.get(address);
+// ─── Send-Signed Endpoint ───────────────────────────────────────────
+// Receives a pre-signed x402 payload from the frontend.
+// Verifies the signature, stores as a pending intent.
+// The frontend handles all signing — server never sees private keys.
 
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
+app.post('/api/send-signed', async (req, res) => {
+  try {
+    const { from, to, amount, signedPayload } = req.body;
+
+    if (!from || !to || !amount || !signedPayload) {
+      return res.status(400).json({ error: 'Missing required fields: from, to, amount, signedPayload' });
     }
 
-    const gateway = new GatewayClient({
-      chain: 'arcTestnet',
-      privateKey: wallet.privateKey,
-    });
+    const amountAtomic = Math.round(parseFloat(amount) * 1e6).toString();
+    const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
 
-    const result = await gateway.deposit(amount);
+    // Build the "accepted" payment requirements (same structure as a 402 response)
+    const accepted = {
+      scheme: 'exact',
+      network: ARC_NETWORK,
+      asset:
+        (arcKind?.extra as any)?.assets?.[0]?.address ||
+        arcKind?.extra?.asset ||
+        ARC_USDC_ADDRESS,
+      amount: amountAtomic,
+      maxTimeoutSeconds: 345600,
+      payTo: to,
+      extra: {
+        name: 'GatewayWalletBatched',
+        version: '1',
+        verifyingContract:
+          arcKind?.extra?.verifyingContract ||
+          '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+      },
+    };
 
-    res.json({
-      status: 'deposited',
-      txHash: result.depositTxHash,
-      amount,
-    });
-  } catch (error) {
-    console.error('Deposit failed:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: 'Deposit failed', details: message });
-  }
-});
+    const resource = {
+      url: `http://localhost:${PORT}/api/send-signed`,
+      description: `Send ${amount} USDC to ${to}`,
+      mimeType: 'application/json',
+    };
 
-// ─── x402 Payment Endpoint (Internal) ───────────────────────────────
-// Returns 402 with payment requirements, then VERIFY-ONLY on retry.
-// Settlement happens later via POST /api/settle.
+    // Construct the full payload that facilitator.verify() expects
+    const fullPayload = {
+      ...signedPayload,
+      resource,
+      accepted,
+    };
 
-app.get('/x402/pay/:recipientAddress', async (req, res) => {
-  try {
-    const recipientAddress = req.params.recipientAddress;
-    const amountUsdc = req.query.amount as string;
-    const amountAtomic = Math.round(parseFloat(amountUsdc) * 1e6).toString();
+    console.log(`send-signed: Verifying ${amount} USDC from ${from.slice(0, 10)} to ${to.slice(0, 10)}...`);
 
-    const paymentSignature = req.headers['payment-signature'] as
-      | string
-      | undefined;
-
-    // ── No signature: return 402 with payment requirements ──
-    if (!paymentSignature) {
-      const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
-
-      console.log(
-        `x402: 402 for ${amountUsdc} USDC to ${recipientAddress}`
-      );
-
-      const accepts = [
-        {
-          scheme: 'exact',
-          network: ARC_NETWORK,
-          asset:
-            (arcKind?.extra as any)?.assets?.[0]?.address ||
-            arcKind?.extra?.asset ||
-            ARC_USDC_ADDRESS,
-          amount: amountAtomic,
-          maxTimeoutSeconds: 345600,
-          payTo: recipientAddress,
-          extra: {
-            name: 'GatewayWalletBatched',
-            version: '1',
-            verifyingContract:
-              arcKind?.extra?.verifyingContract ||
-              '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
-          },
-        },
-      ];
-
-      const resourceUrl = `http://localhost:${PORT}/x402/pay/${recipientAddress}?amount=${amountUsdc}`;
-
-      const paymentRequired = {
-        x402Version: 2,
-        error: 'Payment required',
-        resource: {
-          url: resourceUrl,
-          description: `Send ${amountUsdc} USDC to ${recipientAddress}`,
-          mimeType: 'application/json',
-        },
-        accepts,
-      };
-
-      res.setHeader(
-        'PAYMENT-REQUIRED',
-        Buffer.from(JSON.stringify(paymentRequired)).toString('base64')
-      );
-      return res.status(402).json(paymentRequired);
-    }
-
-    // ── Has signature: VERIFY only (don't settle yet) ──
-    const decoded = JSON.parse(
-      Buffer.from(paymentSignature, 'base64').toString()
-    );
-
-    console.log('x402: Verifying payment signature...');
-
-    const verification = await facilitator.verify(decoded, decoded.accepted);
+    const verification = await facilitator.verify(fullPayload, accepted);
 
     if (!verification.isValid) {
-      console.error('x402: Verification failed:', verification.invalidReason);
-      return res.status(402).json({
+      console.error('send-signed: Verification failed:', verification.invalidReason);
+      return res.status(400).json({
         error: 'Verification failed',
         reason: verification.invalidReason,
       });
     }
 
-    console.log('x402: Payment verified - storing as pending intent');
+    console.log('send-signed: Payment verified - storing as pending intent');
 
-    // Store the raw payload + accepted for later settlement
     const intentId = crypto.randomUUID();
     intents.push({
       id: intentId,
-      from: decoded.accepted?.payTo ? '' : '', // filled by /api/send
-      to: recipientAddress,
-      amount: amountUsdc,
-      payer: verification.payer || 'unknown',
+      from,
+      to,
+      amount,
+      payer: verification.payer || from,
       timestamp: new Date().toISOString(),
       status: 'pending',
-      payload: decoded,
-      accepted: decoded.accepted,
+      payload: fullPayload,
+      accepted,
     });
 
-    // Return success to GatewayClient (payment accepted, pending settlement)
-    const paymentResponse = Buffer.from(
-      JSON.stringify({
-        success: true,
-        transaction: intentId,
-        network: decoded.accepted?.network,
-        payer: verification.payer,
-      })
-    ).toString('base64');
-
-    res.setHeader('PAYMENT-RESPONSE', paymentResponse);
-    res.json({
-      status: 'verified',
-      intentId,
-      to: recipientAddress,
-      amount: amountUsdc,
-      payer: verification.payer,
-    });
-  } catch (error) {
-    console.error('x402 payment endpoint error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: 'Payment failed', details: message });
-  }
-});
-
-// ─── Send Endpoint ──────────────────────────────────────────────────
-
-app.post('/api/send', async (req, res) => {
-  try {
-    const { from, to, amount } = req.body;
-
-    const wallet = wallets.get(from);
-    if (!wallet) {
-      return res.status(404).json({ error: 'Sender wallet not found' });
-    }
-
-    const senderGateway = new GatewayClient({
-      chain: 'arcTestnet',
-      privateKey: wallet.privateKey,
+    // Save to Supabase transactions table
+    const { error: dbError } = await supabase.from('transactions').insert({
+      id: intentId,
+      type: 'send',
+      from_address: from,
+      to_address: to,
+      amount,
+      status: 'pending',
+      intent_id: intentId,
+      network: ARC_NETWORK,
     });
 
-    const result = await senderGateway.pay<{
-      status: string;
-      intentId: string;
-      to: string;
-      amount: string;
-      payer: string;
-    }>(`http://localhost:${PORT}/x402/pay/${to}?amount=${amount}`);
-
-    // Update the intent with the sender address
-    const intent = intents.find((i) => i.id === result.data.intentId);
-    if (intent) {
-      intent.from = from;
+    if (dbError) {
+      console.error('Failed to save transaction to DB:', dbError.message);
     }
 
     res.json({
       status: 'intent_queued',
-      intentId: result.data.intentId,
-      amount: result.formattedAmount,
+      intentId,
+      amount,
     });
   } catch (error) {
-    console.error('Send failed:', error);
+    console.error('send-signed error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: 'Send failed', details: message });
   }
@@ -348,6 +244,7 @@ app.post('/api/settle', async (_req, res) => {
 
     console.log(`Settling ${pending.length} pending intents...`);
 
+    const settlementId = crypto.randomUUID();
     const results: Settlement['results'] = [];
     let totalAmount = 0;
 
@@ -367,6 +264,17 @@ app.post('/api/settle', async (_req, res) => {
             success: true,
             transaction: settlement.transaction,
           });
+
+          // Update transaction status in DB
+          await supabase
+            .from('transactions')
+            .update({
+              status: 'settled',
+              tx_hash: settlement.transaction,
+              settlement_id: settlementId,
+            })
+            .eq('intent_id', intent.id);
+
           console.log(
             `  Settled: ${intent.amount} USDC ${intent.from.slice(0, 8)}→${intent.to.slice(0, 8)} (tx: ${settlement.transaction})`
           );
@@ -388,7 +296,7 @@ app.post('/api/settle', async (_req, res) => {
     }
 
     const settlementRecord: Settlement = {
-      id: crypto.randomUUID(),
+      id: settlementId,
       intentCount: pending.length,
       totalAmount,
       results,
@@ -426,6 +334,7 @@ async function start() {
   await initGateway();
   app.listen(PORT, () => {
     console.log(`Backend running on http://localhost:${PORT}`);
+    console.log('Mode: client-side signing (server never sees private keys)');
   });
 }
 
