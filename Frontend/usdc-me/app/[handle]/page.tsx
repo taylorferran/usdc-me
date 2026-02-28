@@ -12,12 +12,11 @@ interface HandlePageProps {
 export default async function HandlePage({ params }: HandlePageProps) {
   const { handle } = await params
 
-  // Handles must start with @ — e.g. usdc.me/@alice
-  if (!handle.startsWith("@")) {
-    notFound()
-  }
+  // Strip @ prefix if present (Next.js strips @ from params due to parallel route
+  // reserved syntax, so /@salty arrives as "salty", but handle both to be safe)
+  const cleanHandle = handle.replace(/^@/, "").toLowerCase()
 
-  const cleanHandle = handle.slice(1)
+  if (!cleanHandle) notFound()
 
   // Query Supabase directly — profiles are publicly readable
   const supabase = createClient(
@@ -67,7 +66,7 @@ export default async function HandlePage({ params }: HandlePageProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PaymentForm handle={cleanHandle} />
+            <PaymentForm handle={cleanHandle} recipientAddress={recipient.address} />
           </CardContent>
         </Card>
 

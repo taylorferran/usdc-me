@@ -9,6 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { RefreshIcon } from "@hugeicons/core-free-icons"
 import type { BalanceResponse } from "@/lib/api"
 import * as api from "@/lib/api"
+import { useAuth } from "@/contexts/auth-context"
 
 function BalanceLine({
   label,
@@ -36,22 +37,24 @@ function BalanceLine({
 }
 
 export function BalanceDisplay() {
+  const { user } = useAuth()
   const [balance, setBalance] = useState<BalanceResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchBalance = useCallback(async () => {
+    if (!user?.address) return
     setIsLoading(true)
     setError(null)
     try {
-      const data = await api.getBalance()
+      const data = await api.getBalance(user.address)
       setBalance(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load balance")
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [user?.address])
 
   useEffect(() => {
     fetchBalance()

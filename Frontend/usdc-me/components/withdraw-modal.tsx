@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { WITHDRAWAL_CHAINS } from "@/lib/chains"
 import * as api from "@/lib/api"
+import { useAuth } from "@/contexts/auth-context"
 import {
   Form,
   FormControl,
@@ -58,28 +59,39 @@ const schema = z.object({
     .regex(/^\d+(\.\d{1,6})?$/, "Enter a valid amount")
     .refine((v) => parseFloat(v) > 0, "Amount must be greater than 0"),
   chain: z.string().min(1, "Select a destination chain"),
-  address: z
-    .string()
-    .min(10, "Enter a valid destination address"),
+  recipient: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
 
 function WithdrawForm({ onSuccess }: { onSuccess: () => void }) {
+  const { user, privateKey } = useAuth()
   const [error, setError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { amount: "", chain: "", address: "" },
+    defaultValues: { amount: "", chain: "arcTestnet", recipient: "" },
   })
 
   const { isSubmitting } = form.formState
 
   async function handleSubmit(values: FormValues) {
+    if (!user?.address || !privateKey) {
+      setError("Wallet not unlocked — please log in again")
+      return
+    }
     setError(null)
     try {
-      const res = await api.withdraw(values)
-      toast.success(`Withdrawal submitted! Tx: ${res.txHash?.slice(0, 10)}…`)
+      const res = await api.withdraw({
+        address: user.address,
+        amount: values.amount,
+        chain: values.chain,
+        privateKey,
+        recipient: values.recipient || undefined,
+      })
+      toast.success(
+        `Withdrew ${res.amount} USDC to ${res.recipient.slice(0, 10)}… on ${res.destinationChain}`
+      )
       form.reset()
       onSuccess()
     } catch (err) {
@@ -151,13 +163,13 @@ function WithdrawForm({ onSuccess }: { onSuccess: () => void }) {
 
         <FormField
           control={form.control}
-          name="address"
+          name="recipient"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Destination address</FormLabel>
+              <FormLabel>Destination address <span className="text-muted-foreground font-normal">(optional — blank = your wallet)</span></FormLabel>
               <FormControl>
                 <Input
-                  placeholder="0x… or chain-specific address"
+                  placeholder="0x… leave blank to withdraw to your own wallet"
                   autoComplete="off"
                   spellCheck={false}
                   {...field}

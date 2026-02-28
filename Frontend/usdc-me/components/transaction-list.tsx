@@ -10,39 +10,50 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { StatusBadge } from "@/components/status-badge"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { RefreshIcon } from "@hugeicons/core-free-icons"
-import type { Intent } from "@/lib/api"
-import * as api from "@/lib/api"
+import { supabase } from "@/lib/supabase"
+
+interface Transaction {
+  id: string
+  type: "send" | "deposit" | "withdraw"
+  from_address: string
+  to_address: string
+  amount: string
+  status: "pending" | "settled" | "failed"
+  tx_hash: string | null
+  network: string
+  created_at: string
+}
 
 function truncate(addr: string) {
   if (!addr || addr.length < 12) return addr
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
 }
 
-function IntentRow({
-  intent,
+function TransactionRow({
+  tx,
   direction,
 }: {
-  intent: Intent
+  tx: Transaction
   direction: "sent" | "received"
 }) {
-  const counterparty =
-    direction === "sent" ? intent.to : intent.from
+  const counterparty = direction === "sent" ? tx.to_address : tx.from_address
   const prefix = direction === "sent" ? "−" : "+"
+  const label = tx.type === "withdraw" ? "Withdraw" : direction === "sent" ? "Sent" : "Received"
 
   return (
     <div className="flex items-center justify-between gap-3 py-3">
       <div className="flex items-center gap-3">
         <Avatar className="size-8 shrink-0">
           <AvatarFallback className="bg-muted text-muted-foreground text-xs">
-            {counterparty.slice(2, 4).toUpperCase()}
+            {counterparty ? counterparty.slice(2, 4).toUpperCase() : "??"}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0">
           <p className="font-mono text-xs font-medium leading-none">
-            {truncate(counterparty)}
+            {counterparty ? truncate(counterparty) : label}
           </p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {new Date(intent.timestamp).toLocaleString()}
+            {new Date(tx.created_at).toLocaleString()}
           </p>
         </div>
       </div>
@@ -54,9 +65,9 @@ function IntentRow({
               : "text-sm font-semibold"
           }
         >
-          {prefix}${intent.amount}
+          {prefix}${tx.amount}
         </span>
-        <StatusBadge status={intent.status} />
+        <StatusBadge status={tx.status} />
       </div>
     </div>
   )
@@ -92,30 +103,38 @@ interface TransactionListProps {
 }
 
 export function TransactionList({ userAddress }: TransactionListProps) {
-  const [intents, setIntents] = useState<Intent[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  const fetchIntents = useCallback(async () => {
+  const fetchTransactions = useCallback(async () => {
+    if (!userAddress) return
     setIsLoading(true)
     try {
-      const data = await api.getIntents()
-      setIntents(data)
+      const { data } = await supabase
+        .from("transactions")
+        .select("id, type, from_address, to_address, amount, status, tx_hash, network, created_at")
+        .or(`from_address.eq.${userAddress},to_address.eq.${userAddress}`)
+        .order("created_at", { ascending: false })
+        .limit(50)
+
+      setTransactions((data as Transaction[]) ?? [])
     } catch {
-      // silently fail — not blocking
+      // silently fail
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [userAddress])
 
   useEffect(() => {
-    fetchIntents()
-  }, [fetchIntents])
+    fetchTransactions()
+  }, [fetchTransactions])
 
-  const received = intents.filter(
-    (i) => i.to.toLowerCase() === userAddress.toLowerCase()
+  const addr = userAddress.toLowerCase()
+  const received = transactions.filter(
+    (t) => t.type === "send" && t.to_address?.toLowerCase() === addr
   )
-  const sent = intents.filter(
-    (i) => i.from.toLowerCase() === userAddress.toLowerCase()
+  const sent = transactions.filter(
+    (t) => t.from_address?.toLowerCase() === addr
   )
 
   return (
@@ -126,7 +145,7 @@ export function TransactionList({ userAddress }: TransactionListProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={fetchIntents}
+            onClick={fetchTransactions}
             disabled={isLoading}
             aria-label="Refresh transactions"
           >
@@ -159,8 +178,8 @@ export function TransactionList({ userAddress }: TransactionListProps) {
             ) : (
               <ScrollArea className="h-64">
                 <div className="divide-y">
-                  {received.map((i) => (
-                    <IntentRow key={i.id} intent={i} direction="received" />
+                  {received.map((t) => (
+                    <TransactionRow key={t.id} tx={t} direction="received" />
                   ))}
                 </div>
               </ScrollArea>
@@ -175,8 +194,8 @@ export function TransactionList({ userAddress }: TransactionListProps) {
             ) : (
               <ScrollArea className="h-64">
                 <div className="divide-y">
-                  {sent.map((i) => (
-                    <IntentRow key={i.id} intent={i} direction="sent" />
+                  {sent.map((t) => (
+                    <TransactionRow key={t.id} tx={t} direction="sent" />
                   ))}
                 </div>
               </ScrollArea>

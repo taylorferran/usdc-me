@@ -70,14 +70,13 @@ export interface SettleResponse {
 }
 
 export interface WithdrawResponse {
-  txHash: string
   status: string
+  txHash: string
+  amount: string
+  sourceChain: string
+  destinationChain: string
+  recipient: string
 }
-
-// ─── Wallet creation (called during registration) ─────────────────────────────
-
-export const createWallet = () =>
-  apiFetch<{ address: string }>("/api/wallet/create", { method: "POST" })
 
 // ─── User ─────────────────────────────────────────────────────────────────────
 
@@ -86,14 +85,35 @@ export const getUser = (handle: string) =>
 
 // ─── Balance ──────────────────────────────────────────────────────────────────
 
-export const getBalance = () => apiFetch<BalanceResponse>("/api/wallet/balance")
+export const getBalance = (address: string) =>
+  apiFetch<BalanceResponse>(`/api/wallet/${address}/balance`)
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
-export const pay = (handle: string, amount: string) =>
-  apiFetch<PayResponse>(`/api/pay/${handle}`, {
+export interface SendSignedPayload {
+  from: string
+  to: string
+  amount: string
+  signedPayload: {
+    x402Version: number
+    payload: {
+      authorization: {
+        from: string
+        to: string
+        value: string
+        validAfter: string
+        validBefore: string
+        nonce: string
+      }
+      signature: string
+    }
+  }
+}
+
+export const sendSigned = (data: SendSignedPayload) =>
+  apiFetch<PayResponse>("/api/send-signed", {
     method: "POST",
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify(data),
   })
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
@@ -105,17 +125,21 @@ export const getIntents = () => apiFetch<Intent[]>("/api/intents")
 export const settle = () =>
   apiFetch<SettleResponse>("/api/settle", { method: "POST" })
 
-// ─── Future endpoints (shells — wired when backend adds them) ─────────────────
+// ─── Withdraw ─────────────────────────────────────────────────────────────────
 
 export const withdraw = (data: {
+  address: string
   amount: string
   chain: string
-  address: string
+  privateKey: string
+  recipient?: string
 }) =>
-  apiFetch<WithdrawResponse>("/api/withdraw", {
+  apiFetch<WithdrawResponse>(`/api/wallet/${data.address}/withdraw`, {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      amount: data.amount,
+      chain: data.chain,
+      privateKey: data.privateKey,
+      ...(data.recipient ? { recipient: data.recipient } : {}),
+    }),
   })
-
-export const addFunds = () =>
-  apiFetch<{ wallet: { balance: string } }>("/api/fund", { method: "POST" })

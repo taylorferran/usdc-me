@@ -6,8 +6,11 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
+import type { Address, Hex } from "viem"
 
 import * as api from "@/lib/api"
+import { signX402Payment } from "@/lib/signing"
+import { ARC_CHAIN_ID } from "@/lib/wallet"
 import { useAuth } from "@/contexts/auth-context"
 import {
   Form,
@@ -37,10 +40,11 @@ type FormValues = z.infer<typeof schema>
 
 interface PaymentFormProps {
   handle: string
+  recipientAddress: string
 }
 
-export function PaymentForm({ handle }: PaymentFormProps) {
-  const { user } = useAuth()
+export function PaymentForm({ handle, recipientAddress }: PaymentFormProps) {
+  const { user, privateKey } = useAuth()
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,13 +57,30 @@ export function PaymentForm({ handle }: PaymentFormProps) {
   const amountValue = form.watch("amount")
 
   async function handleSubmit(values: FormValues) {
+    if (!user || !privateKey) return
     setError(null)
     setSuccess(null)
+
     try {
-      const res = await api.pay(handle, values.amount)
-      const msg = res.new_balance
-        ? `Paid @${handle} $${values.amount}! Your balance: $${res.new_balance}`
-        : `Paid @${handle} $${values.amount}! Intent queued ✓`
+      const amountAtomic = Math.round(parseFloat(values.amount) * 1e6).toString()
+
+      // Sign the x402 payment payload in the browser
+      const signedPayload = await signX402Payment(
+        privateKey as Hex,
+        recipientAddress as Address,
+        amountAtomic,
+        ARC_CHAIN_ID
+      )
+
+      // Send pre-signed payload to backend for verification + queuing
+      await api.sendSigned({
+        from: user.address,
+        to: recipientAddress,
+        amount: values.amount,
+        signedPayload,
+      })
+
+      const msg = `Paid @${handle} $${values.amount} ✓`
       setSuccess(msg)
       toast.success(msg)
       form.reset()
@@ -121,7 +142,7 @@ export function PaymentForm({ handle }: PaymentFormProps) {
             )}
           />
 
-          {user ? (
+          {user && privateKey ? (
             <Button
               type="submit"
               className="w-full"
@@ -131,13 +152,21 @@ export function PaymentForm({ handle }: PaymentFormProps) {
               {isSubmitting ? (
                 <>
                   <Spinner className="mr-2" />
-                  Sending…
+                  Signing…
                 </>
               ) : amountValue ? (
                 `Pay $${amountValue} →`
               ) : (
                 "Enter an amount"
               )}
+            </Button>
+          ) : user && !privateKey ? (
+            // Session restored from Supabase but key not yet decrypted —
+            // redirect to login to re-enter password
+            <Button className="w-full" size="lg" asChild>
+              <Link href={`/login?next=/${handle}`}>
+                Re-enter password to pay
+              </Link>
             </Button>
           ) : (
             <Button className="w-full" size="lg" asChild>
