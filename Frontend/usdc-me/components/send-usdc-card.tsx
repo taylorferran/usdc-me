@@ -47,7 +47,7 @@ export function SendUsdcCard() {
   const { user, privateKey } = useAuth()
   const [lastTx, setLastTx] = useState<{ amount: string; to: string } | null>(null)
 
-  const form = useForm<FormValues>({
+  const form = useForm<z.input<typeof schema>, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { recipient: "", amount: "" },
   })

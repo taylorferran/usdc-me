@@ -74,6 +74,7 @@ async function initGateway() {
   platformGateway = new GatewayClient({
     chain: 'arcTestnet',
     privateKey: throwawayKey,
+    rpcUrl: 'https://arc-testnet.drpc.org',
   });
 
   try {
@@ -137,6 +138,7 @@ app.post('/api/wallet/:address/withdraw', async (req, res) => {
     const gateway = new GatewayClient({
       chain: 'arcTestnet',
       privateKey,
+      rpcUrl: 'https://arc-testnet.drpc.org',
     });
 
     console.log('Withdraw request:', { address, amount, chain, recipient: recipient || 'self' });
