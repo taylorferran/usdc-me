@@ -70,7 +70,7 @@ export async function POST(req: Request) {
 
     const intentId = crypto.randomUUID()
 
-    await supabaseAdmin.from("transactions").insert({
+    const { error: insertError } = await supabaseAdmin.from("transactions").insert({
       id: intentId,
       type: "send",
       from_address: from,
@@ -82,6 +82,13 @@ export async function POST(req: Request) {
       payload: fullPayload,
       accepted,
     })
+
+    if (insertError) {
+      return NextResponse.json(
+        { error: "Failed to save transaction", details: insertError.message },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({ status: "intent_queued", intentId, amount })
   } catch (err) {

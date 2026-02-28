@@ -96,8 +96,8 @@ export async function POST(
 
     const intentId = crypto.randomUUID()
 
-    // Save transaction
-    await supabaseAdmin.from("transactions").insert({
+    // Save transaction — check for insert errors so we don't orphan the payment
+    const { error: insertError } = await supabaseAdmin.from("transactions").insert({
       id: intentId,
       type: "merchant_payment",
       from_address: from,
@@ -110,11 +110,25 @@ export async function POST(
       accepted,
     })
 
-    // Mark payment as paid
-    await supabaseAdmin
+    if (insertError) {
+      return NextResponse.json(
+        { error: "Failed to save transaction", details: insertError.message },
+        { status: 500 }
+      )
+    }
+
+    // Mark payment as paid (only after transaction is saved)
+    const { error: updateError } = await supabaseAdmin
       .from("payment_requests")
       .update({ status: "paid", payer_address: from, intent_id: intentId })
       .eq("id", paymentId)
+
+    if (updateError) {
+      return NextResponse.json(
+        { error: "Transaction saved but failed to update payment status", details: updateError.message },
+        { status: 500 }
+      )
+    }
 
     // Fire webhook (non-blocking)
     const callbackUrl = payment.callback_url ?? merchant?.callback_url
