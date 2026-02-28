@@ -55,6 +55,11 @@ function App() {
   // Deposit form state
   const [depositAmount, setDepositAmount] = useState('');
 
+  // Withdraw form state
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawChain, setWithdrawChain] = useState('arcTestnet');
+  const [withdrawRecipient, setWithdrawRecipient] = useState('');
+
   const handleAuth = async () => {
     if (!authEmail || !authPassword) return;
     if (isSignup && !authHandle) return;
@@ -104,6 +109,35 @@ function App() {
       checkBalance();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Deposit failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!wallet.privateKey || !wallet.address || !withdrawAmount) return;
+    setLoading('withdraw');
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`${API_URL}/wallet/${wallet.address}/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: withdrawAmount,
+          chain: withdrawChain,
+          privateKey: wallet.privateKey,
+          ...(withdrawRecipient && { recipient: withdrawRecipient }),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.details || data.error);
+      setSuccess(`Withdrew ${data.amount} USDC to ${data.recipient.slice(0, 10)}... on ${data.destinationChain} (tx: ${data.txHash})`);
+      setWithdrawAmount('');
+      setWithdrawRecipient('');
+      checkBalance();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Withdraw failed');
     } finally {
       setLoading(null);
     }
@@ -293,6 +327,43 @@ function App() {
           />
           <button onClick={handleDeposit} disabled={loading === 'deposit' || !depositAmount}>
             {loading === 'deposit' ? 'Depositing...' : 'Deposit'}
+          </button>
+        </div>
+      </div>
+
+      {/* Withdraw from Gateway */}
+      <div className="card">
+        <h3>Withdraw from Gateway</h3>
+        <p className="hint">
+          Move USDC from Gateway to any address on any supported chain.
+          Leave recipient blank to withdraw to your own wallet.
+        </p>
+        <input
+          type="text"
+          placeholder="Recipient address (0x...) — blank = your wallet"
+          value={withdrawRecipient}
+          onChange={(e) => setWithdrawRecipient(e.target.value)}
+        />
+        <select
+          value={withdrawChain}
+          onChange={(e) => setWithdrawChain(e.target.value)}
+        >
+          <option value="arcTestnet">Arc Testnet</option>
+          <option value="baseSepolia">Base Sepolia</option>
+          <option value="sepolia">Ethereum Sepolia</option>
+          <option value="arbitrumSepolia">Arbitrum Sepolia</option>
+          <option value="optimismSepolia">Optimism Sepolia</option>
+          <option value="avalancheFuji">Avalanche Fuji</option>
+        </select>
+        <div className="form-row">
+          <input
+            type="text"
+            placeholder="Amount (e.g. 5)"
+            value={withdrawAmount}
+            onChange={(e) => setWithdrawAmount(e.target.value)}
+          />
+          <button onClick={handleWithdraw} disabled={loading === 'withdraw' || !withdrawAmount}>
+            {loading === 'withdraw' ? 'Withdrawing...' : 'Withdraw'}
           </button>
         </div>
       </div>

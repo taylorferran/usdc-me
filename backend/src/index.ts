@@ -118,6 +118,63 @@ app.get('/api/wallet/:address/balance', async (req, res) => {
   }
 });
 
+// ─── Withdraw Endpoint ──────────────────────────────────────────────
+// Withdraws USDC from Gateway to a wallet on any supported chain.
+// Accepts the user's private key to create a GatewayClient for the withdrawal.
+
+app.post('/api/wallet/:address/withdraw', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const { amount, chain, recipient, privateKey } = req.body;
+
+    if (!amount || !privateKey) {
+      return res.status(400).json({ error: 'Amount and privateKey are required' });
+    }
+
+    const gateway = new GatewayClient({
+      chain: 'arcTestnet',
+      privateKey,
+    });
+
+    console.log('Withdraw request:', { address, amount, chain, recipient: recipient || 'self' });
+    const withdrawOptions: any = {};
+    if (chain) withdrawOptions.chain = chain;
+    if (recipient) withdrawOptions.recipient = recipient;
+    const result = await gateway.withdraw(
+      amount,
+      Object.keys(withdrawOptions).length > 0 ? withdrawOptions : undefined
+    );
+
+    // Log withdraw to DB
+    const { error: dbError } = await supabase.from('transactions').insert({
+      id: crypto.randomUUID(),
+      type: 'withdraw',
+      from_address: address,
+      to_address: result.recipient,
+      amount: result.formattedAmount,
+      status: 'settled',
+      tx_hash: result.mintTxHash,
+      network: result.destinationChain,
+    });
+    if (dbError) {
+      console.error('Failed to save withdraw to DB:', dbError.message);
+    }
+
+    res.json({
+      status: 'withdrawn',
+      txHash: result.mintTxHash,
+      amount: result.formattedAmount,
+      sourceChain: result.sourceChain,
+      destinationChain: result.destinationChain,
+      recipient: result.recipient,
+    });
+  } catch (error) {
+    console.error('Withdrawal failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Withdrawal failed', details: message });
+  }
+});
+
 // ─── Send-Signed Endpoint ───────────────────────────────────────────
 // Receives a pre-signed x402 payload from the frontend.
 // Verifies the signature, stores as a pending intent.
