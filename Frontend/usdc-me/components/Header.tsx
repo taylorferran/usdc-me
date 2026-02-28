@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/auth-context"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { DashboardSquare01Icon, Logout02Icon } from "@hugeicons/core-free-icons"
+import { DashboardSquare01Icon, Logout02Icon, Settings02Icon } from "@hugeicons/core-free-icons"
 
 export default function Header() {
   const { user, logout } = useAuth()
@@ -57,6 +57,12 @@ export default function Header() {
                     <Link href="/dashboard" className="flex items-center gap-2">
                       <HugeiconsIcon icon={DashboardSquare01Icon} strokeWidth={2} className="size-4" />
                       Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center gap-2">
+                      <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} className="size-4" />
+                      Settings
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />

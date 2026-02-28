@@ -38,7 +38,14 @@ function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authHandle, setAuthHandle] = useState('');
+  const [authRecoveryPassword, setAuthRecoveryPassword] = useState('');
   const [isSignup, setIsSignup] = useState(true);
+
+  // Recovery mode state
+  const [showRecoveryForm, setShowRecoveryForm] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryInput, setRecoveryInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
 
   // App state
   const [balance, setBalance] = useState<WalletBalance | null>(null);
@@ -63,16 +70,57 @@ function App() {
   const handleAuth = async () => {
     if (!authEmail || !authPassword) return;
     if (isSignup && !authHandle) return;
+    if (isSignup && !authRecoveryPassword) return;
     setLoading('auth');
     setError(null);
     try {
       if (isSignup) {
-        await wallet.signup(authEmail, authPassword, authHandle);
+        if (authRecoveryPassword === authPassword) {
+          throw new Error('Recovery password must be different from your login password.');
+        }
+        if (authRecoveryPassword.length < 8) {
+          throw new Error('Recovery password must be at least 8 characters.');
+        }
+        await wallet.signup(authEmail, authPassword, authHandle, authRecoveryPassword);
       } else {
         await wallet.login(authEmail, authPassword);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Auth failed');
+      const msg = err instanceof Error ? err.message : 'Auth failed';
+      if (msg === 'NEEDS_RECOVERY') {
+        setError('Password changed — enter your recovery password to restore your wallet.');
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleRecover = async () => {
+    const email = wallet.needsRecovery ? (wallet.email || '') : recoveryEmail;
+    if (!email || !recoveryInput || !newPasswordInput) return;
+    if (newPasswordInput.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    setLoading('recover');
+    setError(null);
+    try {
+      if (wallet.needsRecovery) {
+        // Already authenticated — use direct Supabase recovery
+        await wallet.recoverWithPassword(recoveryInput, newPasswordInput);
+      } else {
+        // Not authenticated — use backend recovery endpoints
+        await wallet.recover(email, recoveryInput, newPasswordInput);
+      }
+      setSuccess('Wallet recovered! Your password has been updated.');
+      setRecoveryInput('');
+      setNewPasswordInput('');
+      setRecoveryEmail('');
+      setShowRecoveryForm(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Recovery failed');
     } finally {
       setLoading(null);
     }
@@ -223,8 +271,102 @@ function App() {
 
   const pendingCount = intents.filter((i) => i.status === 'pending').length;
 
-  // ── Not logged in: show auth form ──
+  // ── Recovery mode: key decryption failed after password reset ──
+  if (wallet.needsRecovery) {
+    return (
+      <div className="container">
+        <h1>USDC.me</h1>
+        <p className="subtitle">Wallet Recovery</p>
+
+        <div className="card">
+          <h3>Recover Your Wallet</h3>
+          <p className="hint">
+            Your login password has changed and your wallet key needs to be re-encrypted.
+            Enter the recovery password you set during registration.
+          </p>
+          <input
+            type="password"
+            placeholder="Recovery password"
+            value={recoveryInput}
+            onChange={(e) => setRecoveryInput(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="New password (will become your login password)"
+            value={newPasswordInput}
+            onChange={(e) => setNewPasswordInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleRecover()}
+          />
+          <button
+            onClick={handleRecover}
+            disabled={loading === 'recover' || !recoveryInput || !newPasswordInput}
+          >
+            {loading === 'recover' ? 'Recovering...' : 'Recover Wallet'}
+          </button>
+          <button className="secondary" onClick={wallet.logout}>
+            Cancel &amp; Log Out
+          </button>
+        </div>
+
+        {error && <p className="error">{error}</p>}
+        {success && <p className="success">{success}</p>}
+      </div>
+    );
+  }
+
+  // ── Not logged in: show auth form or recovery form ──
   if (!wallet.isUnlocked) {
+    // Show standalone recovery form (forgot password from login screen)
+    if (showRecoveryForm) {
+      return (
+        <div className="container">
+          <h1>USDC.me</h1>
+          <p className="subtitle">Wallet Recovery</p>
+
+          <div className="card">
+            <h3>Recover Your Wallet</h3>
+            <p className="hint">
+              Enter the email you registered with and the recovery password you saved during signup.
+            </p>
+            <input
+              type="email"
+              placeholder="Email"
+              value={recoveryEmail}
+              onChange={(e) => setRecoveryEmail(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Recovery password"
+              value={recoveryInput}
+              onChange={(e) => setRecoveryInput(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="New password (min 8 characters)"
+              value={newPasswordInput}
+              onChange={(e) => setNewPasswordInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleRecover()}
+            />
+            <button
+              onClick={handleRecover}
+              disabled={loading === 'recover' || !recoveryEmail || !recoveryInput || !newPasswordInput}
+            >
+              {loading === 'recover' ? 'Recovering...' : 'Recover Wallet'}
+            </button>
+            <button
+              className="secondary"
+              onClick={() => { setShowRecoveryForm(false); setError(null); setSuccess(null); }}
+            >
+              Back to Login
+            </button>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+          {success && <p className="success">{success}</p>}
+        </div>
+      );
+    }
+
     return (
       <div className="container">
         <h1>USDC.me</h1>
@@ -258,11 +400,32 @@ function App() {
             onChange={(e) => setAuthPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
           />
-          <button onClick={handleAuth} disabled={loading === 'auth' || !authEmail || !authPassword || (isSignup && !authHandle)}>
+          {isSignup && (
+            <>
+              <input
+                type="password"
+                placeholder="Recovery password (write this down!)"
+                value={authRecoveryPassword}
+                onChange={(e) => setAuthRecoveryPassword(e.target.value)}
+              />
+              <p className="hint" style={{ marginTop: '-8px', fontSize: '0.8em' }}>
+                If you forget your login password, this is your only way to recover your wallet. Store it safely.
+              </p>
+            </>
+          )}
+          <button onClick={handleAuth} disabled={loading === 'auth' || !authEmail || !authPassword || (isSignup && (!authHandle || !authRecoveryPassword))}>
             {loading === 'auth'
               ? (isSignup ? 'Creating wallet...' : 'Decrypting...')
               : (isSignup ? 'Sign Up' : 'Log In')}
           </button>
+          {!isSignup && (
+            <button
+              className="secondary"
+              onClick={() => { setShowRecoveryForm(true); setError(null); }}
+            >
+              Forgot password? Recover with recovery password
+            </button>
+          )}
           <button
             className="secondary"
             onClick={() => { setIsSignup(!isSignup); setError(null); }}
