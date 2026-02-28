@@ -121,44 +121,56 @@ async function main() {
 
   let created = 0
   let failed = 0
+  const concurrency = parseInt(process.env.CONCURRENCY ?? "20", 10)
 
-  for (let i = 0; i < count; i++) {
-    const to = randomAddress()
-    const { display, atomic } = randomAmount()
-
-    try {
+  // Pre-sign all intents
+  const intents = await Promise.all(
+    Array.from({ length: count }, async (_, i) => {
+      const to = randomAddress()
+      const { display, atomic } = randomAmount()
       const signedPayload = await signIntent(privateKey, to, atomic)
+      return { i, to, display, signedPayload }
+    })
+  )
 
-      const res = await fetch(`${apiUrl}/api/send-signed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: account.address,
-          to,
-          amount: display,
-          signedPayload,
-        }),
+  // Send in batches
+  for (let batch = 0; batch < intents.length; batch += concurrency) {
+    const chunk = intents.slice(batch, batch + concurrency)
+    await Promise.all(
+      chunk.map(async ({ i, to, display, signedPayload }) => {
+        try {
+          const res = await fetch(`${apiUrl}/api/send-signed`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: account.address,
+              to,
+              amount: display,
+              signedPayload,
+            }),
+          })
+
+          const data = await res.json()
+
+          if (res.ok) {
+            created++
+            console.log(
+              `  [${i + 1}/${count}] $${display} -> ${to.slice(0, 10)}... (${data.intentId?.slice(0, 8)}...)`
+            )
+          } else {
+            failed++
+            console.error(
+              `  [${i + 1}/${count}] FAILED: ${data.error} - ${data.reason ?? data.details ?? ""}`
+            )
+          }
+        } catch (err) {
+          failed++
+          console.error(
+            `  [${i + 1}/${count}] FAILED: ${err instanceof Error ? err.message : err}`
+          )
+        }
       })
-
-      const data = await res.json()
-
-      if (res.ok) {
-        created++
-        console.log(
-          `  [${i + 1}/${count}] $${display} -> ${to.slice(0, 10)}... (${data.intentId?.slice(0, 8)}...)`
-        )
-      } else {
-        failed++
-        console.error(
-          `  [${i + 1}/${count}] FAILED: ${data.error} - ${data.reason ?? data.details ?? ""}`
-        )
-      }
-    } catch (err) {
-      failed++
-      console.error(
-        `  [${i + 1}/${count}] FAILED: ${err instanceof Error ? err.message : err}`
-      )
-    }
+    )
   }
 
   console.log(`\nDone! Created ${created} intents.${failed > 0 ? ` (${failed} failed)` : ""}`)

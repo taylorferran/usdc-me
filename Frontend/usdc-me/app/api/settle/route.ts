@@ -31,57 +31,71 @@ export async function POST() {
     const results: Array<{ intentId: string; success: boolean; transaction?: string; error?: string }> = []
     let totalAmount = 0
 
-    // Collect addresses to notify after all settlements complete
     const settledSenders: string[] = []
     const settledRecipients: string[] = []
 
-    for (const intent of pending) {
-      try {
-        if (intent.payload == null || intent.accepted == null) {
-          const reason = "Missing payload — transaction cannot be settled"
-          console.warn("[settle] skipping", intent.id, "—", reason)
-          results.push({ intentId: intent.id, success: false, error: reason })
-          await supabaseAdmin
-            .from("transactions")
-            .update({ status: "failed", error_reason: reason })
-            .eq("id", intent.id)
-          continue
+    const BATCH_SIZE = 50
+
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+      const chunk = pending.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.all(
+        chunk.map(async (intent) => {
+          try {
+            if (intent.payload == null || intent.accepted == null) {
+              const reason = "Missing payload — transaction cannot be settled"
+              console.warn("[settle] skipping", intent.id, "—", reason)
+              await supabaseAdmin
+                .from("transactions")
+                .update({ status: "failed", error_reason: reason })
+                .eq("id", intent.id)
+              return { intentId: intent.id, success: false as const, error: reason }
+            }
+
+            const settlement = await facilitator.settle(intent.payload, intent.accepted)
+
+            if (settlement.success) {
+              await supabaseAdmin
+                .from("transactions")
+                .update({
+                  status: "settled",
+                  tx_hash: settlement.transaction,
+                  settlement_id: settlementId,
+                })
+                .eq("id", intent.id)
+              return {
+                intentId: intent.id,
+                success: true as const,
+                transaction: settlement.transaction,
+                amount: parseFloat(intent.amount),
+                from: intent.from_address,
+                to: intent.to_address,
+              }
+            } else {
+              const reason = settlement.errorReason ?? "Settlement rejected by facilitator"
+              await supabaseAdmin
+                .from("transactions")
+                .update({ status: "failed", error_reason: reason })
+                .eq("id", intent.id)
+              return { intentId: intent.id, success: false as const, error: reason }
+            }
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : "Unknown error"
+            await supabaseAdmin
+              .from("transactions")
+              .update({ status: "failed", error_reason: reason })
+              .eq("id", intent.id)
+            return { intentId: intent.id, success: false as const, error: reason }
+          }
+        })
+      )
+
+      for (const r of batchResults) {
+        results.push(r)
+        if (r.success) {
+          if ("amount" in r) totalAmount += r.amount
+          if ("from" in r && r.from) settledSenders.push(r.from)
+          if ("to" in r && r.to) settledRecipients.push(r.to)
         }
-
-        const settlement = await facilitator.settle(intent.payload, intent.accepted)
-
-        if (settlement.success) {
-          totalAmount += parseFloat(intent.amount)
-          results.push({ intentId: intent.id, success: true, transaction: settlement.transaction })
-
-          await supabaseAdmin
-            .from("transactions")
-            .update({
-              status: "settled",
-              tx_hash: settlement.transaction,
-              settlement_id: settlementId,
-            })
-            .eq("id", intent.id)
-
-          if (intent.from_address) settledSenders.push(intent.from_address)
-          if (intent.to_address) settledRecipients.push(intent.to_address)
-        } else {
-          const reason = settlement.errorReason ?? "Settlement rejected by facilitator"
-          results.push({ intentId: intent.id, success: false, error: reason })
-
-          await supabaseAdmin
-            .from("transactions")
-            .update({ status: "failed", error_reason: reason })
-            .eq("id", intent.id)
-        }
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : "Unknown error"
-        results.push({ intentId: intent.id, success: false, error: reason })
-
-        await supabaseAdmin
-          .from("transactions")
-          .update({ status: "failed", error_reason: reason })
-          .eq("id", intent.id)
       }
     }
 
