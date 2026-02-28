@@ -646,6 +646,84 @@ app.get('/api/settlements', (_req, res) => {
   res.json(settlements);
 });
 
+// ─── Recovery Endpoints ─────────────────────────────────────────────
+// Step 1: Fetch the encrypted recovery blob (service role bypasses RLS)
+app.post('/api/recover/start', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Look up user by email using admin API
+    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+    if (listError) throw new Error(listError.message);
+
+    const user = users.find((u) => u.email === email);
+    if (!user) return res.status(404).json({ error: 'No account found with that email' });
+
+    // Fetch recovery blob from profiles
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('recovery_key_blob, wallet_address')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    if (!profile.recovery_key_blob) {
+      return res.status(400).json({ error: 'No recovery key set for this account' });
+    }
+
+    res.json({
+      recovery_key_blob: profile.recovery_key_blob,
+      wallet_address: profile.wallet_address,
+    });
+  } catch (error) {
+    console.error('Recovery start failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Recovery failed', details: message });
+  }
+});
+
+// Step 2: Complete recovery — reset password + update encrypted key blob
+app.post('/api/recover/complete', async (req, res) => {
+  try {
+    const { email, newPassword, newEncryptedKeyBlob } = req.body;
+    if (!email || !newPassword || !newEncryptedKeyBlob) {
+      return res.status(400).json({ error: 'email, newPassword, and newEncryptedKeyBlob are required' });
+    }
+
+    // Find user by email
+    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+    if (listError) throw new Error(listError.message);
+
+    const user = users.find((u) => u.email === email);
+    if (!user) return res.status(404).json({ error: 'No account found with that email' });
+
+    // Reset Supabase auth password
+    const { error: pwError } = await supabase.auth.admin.updateUserById(user.id, {
+      password: newPassword,
+    });
+    if (pwError) throw new Error(`Password reset failed: ${pwError.message}`);
+
+    // Update encrypted_key_blob in profiles
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ encrypted_key_blob: newEncryptedKeyBlob })
+      .eq('id', user.id);
+
+    if (updateError) throw new Error(`Profile update failed: ${updateError.message}`);
+
+    console.log(`Recovery complete for ${email}`);
+    res.json({ status: 'recovered' });
+  } catch (error) {
+    console.error('Recovery complete failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Recovery failed', details: message });
+  }
+});
+
 // ─── Start Server ───────────────────────────────────────────────────
 
 async function start() {

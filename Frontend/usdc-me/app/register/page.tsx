@@ -32,6 +32,12 @@ const schema = z.object({
   password: z
     .string()
     .min(8, "Password must be at least 8 characters"),
+  recoveryPassword: z
+    .string()
+    .min(8, "Recovery password must be at least 8 characters"),
+}).refine((data) => data.password !== data.recoveryPassword, {
+  message: "Recovery password must be different from your login password",
+  path: ["recoveryPassword"],
 })
 
 type FormValues = z.infer<typeof schema>
@@ -53,7 +59,7 @@ function RegisterForm() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { handle: "", email: "", password: "" },
+    defaultValues: { handle: "", email: "", password: "", recoveryPassword: "" },
   })
 
   const { isSubmitting } = form.formState
@@ -68,7 +74,7 @@ function RegisterForm() {
       setProgressStep(1)
       await new Promise((r) => setTimeout(r, 900))
       setProgressStep(2)
-      await register(values.email, values.password, values.handle)
+      await register(values.email, values.password, values.handle, values.recoveryPassword)
       const next = searchParams.get("next")
       router.push(next || `/dashboard?welcome=${encodeURIComponent(values.handle)}`)
     } catch (err) {
@@ -162,6 +168,28 @@ function RegisterForm() {
                           />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="recoveryPassword"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Recovery Password</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder="Different from login password"
+                            autoComplete="off"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <p className="text-muted-foreground text-xs">
+                          Write this down. If you forget your login password, this is your only way to recover your wallet.
+                        </p>
                       </FormItem>
                     )}
                   />
