@@ -18,17 +18,34 @@ const PORT = process.env.PORT || 3001;
 // In-memory wallet store
 const wallets = new Map<string, { privateKey: Hex; address: string }>();
 
-// Pending intent log
-const pendingIntents: Array<{
+// Pending intents — verified but NOT yet settled on-chain
+interface PendingIntent {
+  id: string;
   from: string;
   to: string;
   amount: string;
-  transaction: string;
   payer: string;
   timestamp: string;
-}> = [];
+  status: 'pending' | 'settled';
+  // Raw x402 data needed to settle later
+  payload: any;
+  accepted: any;
+  // Filled after settlement
+  transaction?: string;
+}
+const intents: PendingIntent[] = [];
 
-// Initialize BatchFacilitatorClient for x402 settlement
+// Settlement log
+interface Settlement {
+  id: string;
+  intentCount: number;
+  totalAmount: number;
+  results: Array<{ intentId: string; success: boolean; transaction?: string; error?: string }>;
+  timestamp: string;
+}
+const settlements: Settlement[] = [];
+
+// Initialize BatchFacilitatorClient for x402 verification + settlement
 const facilitator = new BatchFacilitatorClient();
 
 // Fetch supported payment kinds from Gateway on startup
@@ -50,7 +67,6 @@ async function initGateway() {
     console.log(
       `Gateway initialized - ${supportedKinds.length} supported payment kinds`
     );
-    // Log Arc-specific info for debugging
     const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
     if (arcKind) {
       console.log(`Arc Testnet kind:`, JSON.stringify(arcKind, null, 2));
@@ -117,11 +133,11 @@ app.get('/api/wallet/:address/balance', async (req, res) => {
   }
 });
 
-// POST /api/wallet/:address/deposit - Deposit wallet USDC into Gateway
+// POST /api/wallet/:address/deposit
 app.post('/api/wallet/:address/deposit', async (req, res) => {
   try {
     const { address } = req.params;
-    const { amount } = req.body; // USDC string e.g. "10"
+    const { amount } = req.body;
     const wallet = wallets.get(address);
 
     if (!wallet) {
@@ -148,9 +164,8 @@ app.post('/api/wallet/:address/deposit', async (req, res) => {
 });
 
 // ─── x402 Payment Endpoint (Internal) ───────────────────────────────
-// This implements the x402 protocol: returns 402 with payment
-// requirements, then verifies + settles when the signature is provided.
-// The recipient address and amount are dynamic per-request.
+// Returns 402 with payment requirements, then VERIFY-ONLY on retry.
+// Settlement happens later via POST /api/settle.
 
 app.get('/x402/pay/:recipientAddress', async (req, res) => {
   try {
@@ -167,7 +182,7 @@ app.get('/x402/pay/:recipientAddress', async (req, res) => {
       const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
 
       console.log(
-        `x402: 402 for ${amountUsdc} USDC to ${recipientAddress} (supportedKinds: ${supportedKinds.length}, arcKind: ${!!arcKind})`
+        `x402: 402 for ${amountUsdc} USDC to ${recipientAddress}`
       );
 
       const accepts = [
@@ -179,7 +194,7 @@ app.get('/x402/pay/:recipientAddress', async (req, res) => {
             arcKind?.extra?.asset ||
             ARC_USDC_ADDRESS,
           amount: amountAtomic,
-          maxTimeoutSeconds: 345600, // 4 days for batching
+          maxTimeoutSeconds: 345600,
           payTo: recipientAddress,
           extra: {
             name: 'GatewayWalletBatched',
@@ -204,7 +219,6 @@ app.get('/x402/pay/:recipientAddress', async (req, res) => {
         accepts,
       };
 
-      // Set both header AND body - GatewayClient reads from body
       res.setHeader(
         'PAYMENT-REQUIRED',
         Buffer.from(JSON.stringify(paymentRequired)).toString('base64')
@@ -212,44 +226,56 @@ app.get('/x402/pay/:recipientAddress', async (req, res) => {
       return res.status(402).json(paymentRequired);
     }
 
-    // ── Has signature: verify and settle ──
+    // ── Has signature: VERIFY only (don't settle yet) ──
     const decoded = JSON.parse(
       Buffer.from(paymentSignature, 'base64').toString()
     );
 
-    console.log('x402: Received payment signature, settling...');
-    console.log('x402: accepted:', JSON.stringify(decoded.accepted, null, 2));
+    console.log('x402: Verifying payment signature...');
 
-    // Pass full payload + accepted requirements (as the digital-dungeon example does)
-    const settlement = await facilitator.settle(decoded, decoded.accepted);
+    const verification = await facilitator.verify(decoded, decoded.accepted);
 
-    console.log('x402: Settlement result:', JSON.stringify(settlement, null, 2));
-
-    if (!settlement.success) {
-      console.error('x402: Settlement failed:', settlement.errorReason);
+    if (!verification.isValid) {
+      console.error('x402: Verification failed:', verification.invalidReason);
       return res.status(402).json({
-        error: 'Settlement failed',
-        reason: settlement.errorReason,
+        error: 'Verification failed',
+        reason: verification.invalidReason,
       });
     }
 
-    // Settlement queued in Gateway batch
+    console.log('x402: Payment verified - storing as pending intent');
+
+    // Store the raw payload + accepted for later settlement
+    const intentId = crypto.randomUUID();
+    intents.push({
+      id: intentId,
+      from: decoded.accepted?.payTo ? '' : '', // filled by /api/send
+      to: recipientAddress,
+      amount: amountUsdc,
+      payer: verification.payer || 'unknown',
+      timestamp: new Date().toISOString(),
+      status: 'pending',
+      payload: decoded,
+      accepted: decoded.accepted,
+    });
+
+    // Return success to GatewayClient (payment accepted, pending settlement)
     const paymentResponse = Buffer.from(
       JSON.stringify({
         success: true,
-        transaction: settlement.transaction,
+        transaction: intentId,
         network: decoded.accepted?.network,
-        payer: settlement.payer,
+        payer: verification.payer,
       })
     ).toString('base64');
 
     res.setHeader('PAYMENT-RESPONSE', paymentResponse);
     res.json({
-      status: 'settled',
+      status: 'verified',
+      intentId,
       to: recipientAddress,
       amount: amountUsdc,
-      transaction: settlement.transaction,
-      payer: settlement.payer,
+      payer: verification.payer,
     });
   } catch (error) {
     console.error('x402 payment endpoint error:', error);
@@ -259,8 +285,6 @@ app.get('/x402/pay/:recipientAddress', async (req, res) => {
 });
 
 // ─── Send Endpoint ──────────────────────────────────────────────────
-// Uses the sender's GatewayClient to pay the x402 endpoint above.
-// GatewayClient handles the full 402 negotiate → sign → retry flow.
 
 app.post('/api/send', async (req, res) => {
   try {
@@ -271,37 +295,29 @@ app.post('/api/send', async (req, res) => {
       return res.status(404).json({ error: 'Sender wallet not found' });
     }
 
-    // Create a GatewayClient with the sender's key
     const senderGateway = new GatewayClient({
       chain: 'arcTestnet',
       privateKey: wallet.privateKey,
     });
 
-    // Pay the x402-protected endpoint (server calls itself)
-    // GatewayClient will: GET → 402 → sign intent → retry with signature → 200
     const result = await senderGateway.pay<{
       status: string;
+      intentId: string;
       to: string;
       amount: string;
-      transaction: string;
       payer: string;
     }>(`http://localhost:${PORT}/x402/pay/${to}?amount=${amount}`);
 
-    // Log the pending intent
-    pendingIntents.push({
-      from,
-      to,
-      amount,
-      transaction: result.transaction,
-      payer: result.data.payer || from,
-      timestamp: new Date().toISOString(),
-    });
+    // Update the intent with the sender address
+    const intent = intents.find((i) => i.id === result.data.intentId);
+    if (intent) {
+      intent.from = from;
+    }
 
     res.json({
       status: 'intent_queued',
-      transaction: result.transaction,
+      intentId: result.data.intentId,
       amount: result.formattedAmount,
-      data: result.data,
     });
   } catch (error) {
     console.error('Send failed:', error);
@@ -313,7 +329,95 @@ app.post('/api/send', async (req, res) => {
 // ─── Intents Endpoint ───────────────────────────────────────────────
 
 app.get('/api/intents', (_req, res) => {
-  res.json(pendingIntents);
+  res.json(
+    intents.map(({ payload, accepted, ...rest }) => rest)
+  );
+});
+
+// ─── Settle Endpoint ────────────────────────────────────────────────
+// "Resolve Now" — settles all pending intents through Gateway.
+// Gateway handles the on-chain batching and pays for gas.
+
+app.post('/api/settle', async (_req, res) => {
+  try {
+    const pending = intents.filter((i) => i.status === 'pending');
+
+    if (pending.length === 0) {
+      return res.json({ message: 'No pending intents to settle', settled: 0 });
+    }
+
+    console.log(`Settling ${pending.length} pending intents...`);
+
+    const results: Settlement['results'] = [];
+    let totalAmount = 0;
+
+    for (const intent of pending) {
+      try {
+        const settlement = await facilitator.settle(
+          intent.payload,
+          intent.accepted
+        );
+
+        if (settlement.success) {
+          intent.status = 'settled';
+          intent.transaction = settlement.transaction;
+          totalAmount += parseFloat(intent.amount);
+          results.push({
+            intentId: intent.id,
+            success: true,
+            transaction: settlement.transaction,
+          });
+          console.log(
+            `  Settled: ${intent.amount} USDC ${intent.from.slice(0, 8)}→${intent.to.slice(0, 8)} (tx: ${settlement.transaction})`
+          );
+        } else {
+          results.push({
+            intentId: intent.id,
+            success: false,
+            error: settlement.errorReason,
+          });
+          console.error(
+            `  Failed: ${intent.amount} USDC - ${settlement.errorReason}`
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        results.push({ intentId: intent.id, success: false, error: msg });
+        console.error(`  Error settling intent ${intent.id}: ${msg}`);
+      }
+    }
+
+    const settlementRecord: Settlement = {
+      id: crypto.randomUUID(),
+      intentCount: pending.length,
+      totalAmount,
+      results,
+      timestamp: new Date().toISOString(),
+    };
+    settlements.push(settlementRecord);
+
+    const succeeded = results.filter((r) => r.success).length;
+    console.log(
+      `Settlement complete: ${succeeded}/${pending.length} intents settled, ${totalAmount} USDC total`
+    );
+
+    res.json({
+      settlementId: settlementRecord.id,
+      settled: succeeded,
+      failed: pending.length - succeeded,
+      totalAmount,
+      results,
+    });
+  } catch (error) {
+    console.error('Settlement error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Settlement failed', details: message });
+  }
+});
+
+// GET /api/settlements - settlement history
+app.get('/api/settlements', (_req, res) => {
+  res.json(settlements);
 });
 
 // ─── Start Server ───────────────────────────────────────────────────
