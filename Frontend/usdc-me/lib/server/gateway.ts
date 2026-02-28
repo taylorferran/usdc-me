@@ -50,7 +50,7 @@ export function createPlatformGateway(): GatewayClient {
 }
 
 /** User gateway — signs withdrawals with the user's private key. */
-export function createUserGateway(privateKey: string): GatewayClient {
+export function createUserGateway(privateKey: `0x${string}`): GatewayClient {
   return new GatewayClient({
     chain: "arcTestnet",
     privateKey,
