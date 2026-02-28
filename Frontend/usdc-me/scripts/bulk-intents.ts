@@ -111,7 +111,7 @@ async function main() {
     process.exit(1)
   }
 
-  const apiUrl = process.env.API_URL ?? "http://localhost:3001"
+  const apiUrl = process.env.API_URL ?? "https://usdc-me.vercel.app"
   const count = parseInt(process.env.INTENT_COUNT ?? "50", 10)
 
   const account = privateKeyToAccount(privateKey)
