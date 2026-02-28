@@ -44,18 +44,14 @@ export async function POST(
     const amount = payment.amount
 
     // Check payer has sufficient Gateway balance before accepting
-    try {
-      const gateway = createPlatformGateway()
-      const balances = await gateway.getBalances(from as `0x${string}`)
-      const available = parseFloat(balances.gateway.formattedAvailable)
-      if (available < parseFloat(amount)) {
-        return NextResponse.json(
-          { error: `Insufficient balance. Available: ${available.toFixed(2)} USDC, Required: ${amount} USDC` },
-          { status: 400 }
-        )
-      }
-    } catch {
-      // If balance check fails, don't block — verification will still catch invalid signatures
+    const gateway = createPlatformGateway()
+    const balances = await gateway.getBalances(from as `0x${string}`)
+    const available = parseFloat(balances.gateway.formattedAvailable)
+    if (available < parseFloat(amount)) {
+      return NextResponse.json(
+        { error: `Insufficient balance. Available: ${available.toFixed(2)} USDC, Required: ${amount} USDC` },
+        { status: 400 }
+      )
     }
 
     const amountAtomic = Math.round(parseFloat(amount) * 1e6).toString()
