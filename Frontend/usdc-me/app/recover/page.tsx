@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
@@ -32,6 +32,14 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function RecoverPage() {
+  return (
+    <Suspense>
+      <RecoverForm />
+    </Suspense>
+  )
+}
+
+function RecoverForm() {
   const { recover, recoverWithPassword, needsRecovery, user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
