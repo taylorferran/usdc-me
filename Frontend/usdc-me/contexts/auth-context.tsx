@@ -38,6 +38,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, handle: string) => Promise<void>
   logout: () => Promise<void>
+  decryptKey: (password: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -150,6 +151,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   )
 
+  // Decrypt the private key on demand (for scenarios where sessionStorage was cleared)
+  const decryptKey = useCallback(async (password: string) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) throw new Error("Not logged in")
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("encrypted_key_blob, wallet_address")
+      .eq("id", session.user.id)
+      .single()
+
+    if (!profile?.encrypted_key_blob) throw new Error("No encrypted key found")
+
+    const blob: EncryptedKeyBlob =
+      typeof profile.encrypted_key_blob === "string"
+        ? JSON.parse(profile.encrypted_key_blob)
+        : profile.encrypted_key_blob
+    const decryptedKey = (await decryptPrivateKey(blob, password)) as Hex
+
+    // Verify address match
+    const derivedAddress = getAddressFromKey(decryptedKey)
+    if (derivedAddress.toLowerCase() !== profile.wallet_address?.toLowerCase()) {
+      throw new Error("Decryption mismatch — key doesn't match stored address.")
+    }
+
+    cacheKey(decryptedKey)
+    setPrivateKey(decryptedKey)
+  }, [])
+
   const logout = useCallback(async () => {
     clearCachedKey()
     await supabase.auth.signOut()
@@ -158,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, privateKey, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, privateKey, isLoading, login, register, logout, decryptKey }}>
       {children}
     </AuthContext.Provider>
   )

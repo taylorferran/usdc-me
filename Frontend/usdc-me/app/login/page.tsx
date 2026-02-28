@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -31,8 +31,17 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const { login } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
@@ -47,7 +56,7 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password)
       toast.success("Welcome back!")
-      router.push("/dashboard")
+      router.push(searchParams.get("next") || "/dashboard")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     }

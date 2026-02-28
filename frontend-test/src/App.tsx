@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import './App.css';
 import { useWallet } from './context/WalletContext';
 import { signX402Payment, deposit as clientDeposit } from './lib/signing';
@@ -459,6 +460,11 @@ function App() {
         )}
       </div>
 
+      <Link to="/merchant">
+        <button className="secondary" style={{ marginBottom: 8 }}>
+          Merchant Setup
+        </button>
+      </Link>
       <button className="secondary" onClick={wallet.logout}>
         Log Out
       </button>

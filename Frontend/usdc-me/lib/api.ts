@@ -143,3 +143,50 @@ export const withdraw = (data: {
       ...(data.recipient ? { recipient: data.recipient } : {}),
     }),
   })
+
+// ─── Merchant ────────────────────────────────────────────────────────────────
+
+export interface MerchantResponse {
+  merchant_id: string
+  api_key: string
+  name: string
+  wallet_address: string
+}
+
+export interface PaymentDetails {
+  payment_id: string
+  merchant_name: string
+  merchant_wallet: string
+  amount: string
+  description: string | null
+  status: "pending" | "paid" | "expired" | "failed"
+  redirect_url: string | null
+  expires_at: string
+}
+
+export const registerMerchant = (data: {
+  name: string
+  email: string
+  wallet_address: string
+  callback_url?: string
+}) =>
+  apiFetch<MerchantResponse>("/api/merchants/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+
+export const getPaymentDetails = (paymentId: string) =>
+  apiFetch<PaymentDetails>(`/api/payments/${paymentId}`)
+
+export const payPaymentRequest = (
+  paymentId: string,
+  from: string,
+  signedPayload: unknown
+) =>
+  apiFetch<{ status: string; intentId: string; amount: string }>(
+    `/api/payments/${paymentId}/pay`,
+    {
+      method: "POST",
+      body: JSON.stringify({ from, signedPayload }),
+    }
+  )

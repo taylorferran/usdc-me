@@ -1,7 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import 'dotenv/config';
-import express from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import { generatePrivateKey } from 'viem/accounts';
+import { isAddress } from 'viem';
 import { GatewayClient } from '@circlefin/x402-batching/client';
 import { BatchFacilitatorClient } from '@circlefin/x402-batching/server';
 import { createClient } from '@supabase/supabase-js';
@@ -20,6 +22,7 @@ app.use(express.json());
 const ARC_USDC_ADDRESS = '0x3600000000000000000000000000000000000000' as const;
 const ARC_NETWORK = 'eip155:5042002';
 const PORT = process.env.PORT || 3001;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Pending intents — verified but NOT yet settled on-chain
 interface PendingIntent {
@@ -175,6 +178,337 @@ app.post('/api/wallet/:address/withdraw', async (req, res) => {
   }
 });
 
+// ─── Shared: Verify + Queue Intent Helper ───────────────────────────
+// Reused by /api/send-signed and /api/payments/:paymentId/pay
+
+async function verifyAndQueueIntent(params: {
+  from: string;
+  to: string;
+  amount: string;
+  signedPayload: any;
+  type?: 'send' | 'merchant_payment';
+}): Promise<{ ok: true; intentId: string } | { ok: false; error: string; status: number }> {
+  const { from, to, amount, signedPayload, type = 'send' } = params;
+  const amountAtomic = Math.round(parseFloat(amount) * 1e6).toString();
+  const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
+
+  const accepted = {
+    scheme: 'exact',
+    network: ARC_NETWORK,
+    asset:
+      (arcKind?.extra as any)?.assets?.[0]?.address ||
+      arcKind?.extra?.asset ||
+      ARC_USDC_ADDRESS,
+    amount: amountAtomic,
+    maxTimeoutSeconds: 345600,
+    payTo: to,
+    extra: {
+      name: 'GatewayWalletBatched',
+      version: '1',
+      verifyingContract:
+        arcKind?.extra?.verifyingContract ||
+        '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+    },
+  };
+
+  const resource = {
+    url: `http://localhost:${PORT}/api/send-signed`,
+    description: `Send ${amount} USDC to ${to}`,
+    mimeType: 'application/json',
+  };
+
+  const fullPayload = { ...signedPayload, resource, accepted };
+
+  console.log(`verify: ${amount} USDC from ${from.slice(0, 10)} to ${to.slice(0, 10)}...`);
+
+  const verification = await facilitator.verify(fullPayload, accepted);
+
+  if (!verification.isValid) {
+    console.error('verify: failed:', verification.invalidReason);
+    return { ok: false, error: verification.invalidReason || 'Verification failed', status: 400 };
+  }
+
+  console.log('verify: success - storing as pending intent');
+
+  const intentId = crypto.randomUUID();
+  intents.push({
+    id: intentId,
+    from,
+    to,
+    amount,
+    payer: verification.payer || from,
+    timestamp: new Date().toISOString(),
+    status: 'pending',
+    payload: fullPayload,
+    accepted,
+  });
+
+  const { error: dbError } = await supabase.from('transactions').insert({
+    id: intentId,
+    type,
+    from_address: from,
+    to_address: to,
+    amount,
+    status: 'pending',
+    intent_id: intentId,
+    network: ARC_NETWORK,
+  });
+
+  if (dbError) {
+    console.error('Failed to save transaction to DB:', dbError.message);
+  }
+
+  return { ok: true, intentId };
+}
+
+// ─── Webhook Delivery ────────────────────────────────────────────────
+
+async function deliverWebhook(callbackUrl: string, payload: object) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) return;
+      console.error(`Webhook delivery failed (attempt ${attempt + 1}): HTTP ${res.status}`);
+    } catch (err) {
+      console.error(`Webhook delivery error (attempt ${attempt + 1}):`, err);
+    }
+  }
+}
+
+// ─── Merchant Auth Middleware ─────────────────────────────────────────
+
+async function merchantAuth(req: Request, res: Response, next: NextFunction) {
+  const apiKey = req.headers['x-api-key'] as string;
+  if (!apiKey) return res.status(401).json({ error: 'Missing X-API-Key header' });
+
+  const { data: merchant, error } = await supabase
+    .from('merchants')
+    .select('*')
+    .eq('api_key', apiKey)
+    .single();
+
+  if (error || !merchant) return res.status(401).json({ error: 'Invalid API key' });
+
+  (req as any).merchant = merchant;
+  next();
+}
+
+// ─── Merchant Registration ───────────────────────────────────────────
+
+app.post('/api/merchants/register', async (req, res) => {
+  try {
+    const { name, email, wallet_address, callback_url } = req.body;
+
+    if (!name || !email || !wallet_address) {
+      return res.status(400).json({ error: 'name, email, and wallet_address are required' });
+    }
+
+    if (!isAddress(wallet_address)) {
+      return res.status(400).json({ error: 'Invalid wallet_address' });
+    }
+
+    const apiKey = 'usdcme_' + randomBytes(32).toString('hex');
+
+    const { data: merchant, error } = await supabase
+      .from('merchants')
+      .insert({ name, email, wallet_address, api_key: apiKey, callback_url: callback_url || null })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ error: 'Registration failed', details: error.message });
+    }
+
+    res.status(201).json({
+      merchant_id: merchant.id,
+      api_key: apiKey,
+      name: merchant.name,
+      wallet_address: merchant.wallet_address,
+    });
+  } catch (error) {
+    console.error('Merchant registration error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Registration failed', details: message });
+  }
+});
+
+// ─── Create Payment Request ──────────────────────────────────────────
+
+app.post('/api/payments/create', merchantAuth, async (req: any, res) => {
+  try {
+    const merchant = req.merchant;
+    const { amount, description, redirect_url, callback_url } = req.body;
+
+    if (!amount) {
+      return res.status(400).json({ error: 'amount is required' });
+    }
+
+    const paymentId = 'pay_' + randomBytes(8).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min
+
+    const { error } = await supabase.from('payment_requests').insert({
+      id: paymentId,
+      merchant_id: merchant.id,
+      amount,
+      description: description || null,
+      redirect_url: redirect_url || null,
+      callback_url: callback_url || null,
+      expires_at: expiresAt,
+    });
+
+    if (error) {
+      return res.status(400).json({ error: 'Failed to create payment', details: error.message });
+    }
+
+    const paymentUrl = `${FRONTEND_URL}/pay/${paymentId}`;
+
+    res.status(201).json({
+      payment_id: paymentId,
+      payment_url: paymentUrl,
+      qr_data: paymentUrl,
+      amount,
+      description: description || null,
+      status: 'pending',
+      expires_at: expiresAt,
+    });
+  } catch (error) {
+    console.error('Create payment error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to create payment', details: message });
+  }
+});
+
+// ─── Get Payment Details ─────────────────────────────────────────────
+
+app.get('/api/payments/:paymentId', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+
+    const { data: payment, error } = await supabase
+      .from('payment_requests')
+      .select('*, merchants(name, wallet_address)')
+      .eq('id', paymentId)
+      .single();
+
+    if (error || !payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    // Check expiry
+    let status = payment.status;
+    if (status === 'pending' && new Date(payment.expires_at) < new Date()) {
+      status = 'expired';
+      await supabase.from('payment_requests').update({ status: 'expired' }).eq('id', paymentId);
+    }
+
+    const merchant = payment.merchants as any;
+
+    res.json({
+      payment_id: payment.id,
+      merchant_name: merchant?.name || 'Unknown',
+      merchant_wallet: merchant?.wallet_address || '',
+      amount: payment.amount,
+      description: payment.description,
+      status,
+      redirect_url: payment.redirect_url,
+      expires_at: payment.expires_at,
+    });
+  } catch (error) {
+    console.error('Get payment error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to fetch payment', details: message });
+  }
+});
+
+// ─── Pay a Payment Request ───────────────────────────────────────────
+
+app.post('/api/payments/:paymentId/pay', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const { from, signedPayload } = req.body;
+
+    if (!from || !signedPayload) {
+      return res.status(400).json({ error: 'from and signedPayload are required' });
+    }
+
+    // Look up the payment request
+    const { data: payment, error: fetchError } = await supabase
+      .from('payment_requests')
+      .select('*, merchants(name, wallet_address, callback_url)')
+      .eq('id', paymentId)
+      .single();
+
+    if (fetchError || !payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    if (payment.status !== 'pending') {
+      return res.status(400).json({ error: `Payment is already ${payment.status}` });
+    }
+
+    if (new Date(payment.expires_at) < new Date()) {
+      await supabase.from('payment_requests').update({ status: 'expired' }).eq('id', paymentId);
+      return res.status(400).json({ error: 'Payment has expired' });
+    }
+
+    const merchant = payment.merchants as any;
+    const merchantWallet = merchant?.wallet_address;
+
+    if (!merchantWallet) {
+      return res.status(500).json({ error: 'Merchant wallet not found' });
+    }
+
+    // Verify and queue using the shared helper
+    const result = await verifyAndQueueIntent({
+      from,
+      to: merchantWallet,
+      amount: payment.amount,
+      signedPayload,
+      type: 'merchant_payment',
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: 'Verification failed', reason: result.error });
+    }
+
+    // Update payment request status
+    await supabase.from('payment_requests').update({
+      status: 'paid',
+      payer_address: from,
+      intent_id: result.intentId,
+    }).eq('id', paymentId);
+
+    // Fire webhook (non-blocking)
+    const callbackUrl = payment.callback_url || merchant?.callback_url;
+    if (callbackUrl) {
+      deliverWebhook(callbackUrl, {
+        event: 'payment.completed',
+        payment_id: paymentId,
+        amount: payment.amount,
+        payer_address: from,
+        intent_id: result.intentId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      status: 'paid',
+      intentId: result.intentId,
+      amount: payment.amount,
+      redirect_url: payment.redirect_url,
+    });
+  } catch (error) {
+    console.error('Pay payment error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Payment failed', details: message });
+  }
+});
+
 // ─── Send-Signed Endpoint ───────────────────────────────────────────
 // Receives a pre-signed x402 payload from the frontend.
 // Verifies the signature, stores as a pending intent.
@@ -188,88 +522,15 @@ app.post('/api/send-signed', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: from, to, amount, signedPayload' });
     }
 
-    const amountAtomic = Math.round(parseFloat(amount) * 1e6).toString();
-    const arcKind = supportedKinds.find((k) => k.network === ARC_NETWORK);
+    const result = await verifyAndQueueIntent({ from, to, amount, signedPayload });
 
-    // Build the "accepted" payment requirements (same structure as a 402 response)
-    const accepted = {
-      scheme: 'exact',
-      network: ARC_NETWORK,
-      asset:
-        (arcKind?.extra as any)?.assets?.[0]?.address ||
-        arcKind?.extra?.asset ||
-        ARC_USDC_ADDRESS,
-      amount: amountAtomic,
-      maxTimeoutSeconds: 345600,
-      payTo: to,
-      extra: {
-        name: 'GatewayWalletBatched',
-        version: '1',
-        verifyingContract:
-          arcKind?.extra?.verifyingContract ||
-          '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
-      },
-    };
-
-    const resource = {
-      url: `http://localhost:${PORT}/api/send-signed`,
-      description: `Send ${amount} USDC to ${to}`,
-      mimeType: 'application/json',
-    };
-
-    // Construct the full payload that facilitator.verify() expects
-    const fullPayload = {
-      ...signedPayload,
-      resource,
-      accepted,
-    };
-
-    console.log(`send-signed: Verifying ${amount} USDC from ${from.slice(0, 10)} to ${to.slice(0, 10)}...`);
-
-    const verification = await facilitator.verify(fullPayload, accepted);
-
-    if (!verification.isValid) {
-      console.error('send-signed: Verification failed:', verification.invalidReason);
-      return res.status(400).json({
-        error: 'Verification failed',
-        reason: verification.invalidReason,
-      });
-    }
-
-    console.log('send-signed: Payment verified - storing as pending intent');
-
-    const intentId = crypto.randomUUID();
-    intents.push({
-      id: intentId,
-      from,
-      to,
-      amount,
-      payer: verification.payer || from,
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-      payload: fullPayload,
-      accepted,
-    });
-
-    // Save to Supabase transactions table
-    const { error: dbError } = await supabase.from('transactions').insert({
-      id: intentId,
-      type: 'send',
-      from_address: from,
-      to_address: to,
-      amount,
-      status: 'pending',
-      intent_id: intentId,
-      network: ARC_NETWORK,
-    });
-
-    if (dbError) {
-      console.error('Failed to save transaction to DB:', dbError.message);
+    if (!result.ok) {
+      return res.status(result.status).json({ error: 'Verification failed', reason: result.error });
     }
 
     res.json({
       status: 'intent_queued',
-      intentId,
+      intentId: result.intentId,
       amount,
     });
   } catch (error) {

@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -37,8 +37,17 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
+  )
+}
+
+function RegisterForm() {
   const { register } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
   const [progressStep, setProgressStep] = useState<0 | 1 | 2 | null>(null)
 
@@ -60,7 +69,8 @@ export default function RegisterPage() {
       await new Promise((r) => setTimeout(r, 900))
       setProgressStep(2)
       await register(values.email, values.password, values.handle)
-      router.push(`/dashboard?welcome=${encodeURIComponent(values.handle)}`)
+      const next = searchParams.get("next")
+      router.push(next || `/dashboard?welcome=${encodeURIComponent(values.handle)}`)
     } catch (err) {
       setProgressStep(null)
       setError(err instanceof Error ? err.message : "Registration failed")
