@@ -28,6 +28,31 @@ USDC-ME is a gasless stablecoin payment platform built on [Circle's x402 batchin
 | Auth & DB | Supabase (PostgreSQL) |
 | Encryption | AES-GCM + PBKDF2 (client-side) |
 
+## Nanopayments on Arc
+
+The x402 intent architecture is what makes nanopayments viable. Every payment is a signed intent, not an on-chain transaction. Intents queue up and settle in a single batch, so the cost per payment drops to near zero regardless of amount. A merchant can sell a digital good for $0.001 and the economics work.
+
+We build directly on two classes from Circle's `@circlefin/x402-batching` SDK:
+
+### `BatchFacilitatorClient` (server-side)
+
+The facilitator handles verification and settlement of x402 spend intents.
+
+- **`verify(payload, accepted)`** — Cryptographically verifies a signed x402 spend intent against the accepted payment terms. Every payment (P2P and merchant) goes through this before being queued. Returns `{ isValid, invalidReason }`.
+- **`settle(payload, accepted)`** — Submits a queued intent on-chain. During batch settlement, we call this for every pending intent and they all resolve in a single on-chain transaction. Returns `{ success, transaction }`.
+- **`getSupported()`** — Returns supported payment schemes and networks. Used at startup to configure the accepted terms for intent verification.
+
+### `GatewayClient` (server-side)
+
+The gateway manages USDC deposits, balances, and cross-chain withdrawals.
+
+- **`getBalances(address)`** — Returns wallet and gateway balances for any address. Powers the dashboard balance display and pre-send validation. Returns `{ wallet.formatted, gateway.formattedTotal, gateway.formattedAvailable }`.
+- **`withdraw(amount, options)`** — Bridges USDC from the Arc gateway to any of 9 supported chains (Ethereum, Base, Solana, Avalanche, Polygon, Arbitrum, Optimism, Noble, Arc). Returns the mint transaction hash and chain details.
+
+### Client-side signing
+
+On the client, we use Viem's `signTypedData` to sign EIP-712 `TransferWithAuthorization` payloads. The signed payload includes `from`, `to`, `value`, `validAfter`, `validBefore`, and a random `nonce`. This is packaged as an x402 v2 spend intent (`{ x402Version: 2, payload: { authorization, signature } }`) and sent to the server for verification.
+
 ## Getting Started
 
 ### Prerequisites
@@ -136,11 +161,11 @@ When a payment completes, a POST request is sent to your registered callback URL
 
 2. **To send USDC**, the user signs an x402 `TransferWithAuthorization` (EIP-712) in-browser. No gas needed.
 
-3. **The server verifies** the signature via Circle's `BatchFacilitatorClient` and stores it as a pending intent.
+3. **The server verifies** the signature via `BatchFacilitatorClient.verify()` and stores it as a pending intent.
 
-4. **Settlement** batches all pending intents and submits them on-chain in a single transaction.
+4. **Settlement** calls `BatchFacilitatorClient.settle()` for all pending intents, batching them into a single on-chain transaction.
 
-5. **Withdrawals** use the Circle gateway to bridge USDC to the user's chosen chain.
+5. **Withdrawals** use `GatewayClient.withdraw()` to bridge USDC to the user's chosen chain.
 
 ## Security
 
@@ -149,8 +174,6 @@ When a payment completes, a POST request is sent to your registered callback URL
 - All x402 signatures verified server-side before acceptance
 - Decrypted keys stored in `sessionStorage` only (cleared on tab close)
 - Merchant API keys validated on every request
-
-See [TECH_DETAILS.md](TECH_DETAILS.md) for the full security model and technical architecture.
 
 ## License
 
