@@ -50,7 +50,7 @@ export default function Header() {
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <button className="flex items-center gap-2 rounded-full focus-visible:outline-none">
                     <Avatar className="size-8 cursor-pointer">
                       <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
                         {user.handle.slice(0, 2).toUpperCase()}

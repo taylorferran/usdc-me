@@ -185,7 +185,7 @@ export function MerchantOverview({ merchant }: MerchantOverviewProps) {
             <HugeiconsIcon
               icon={RefreshIcon}
               strokeWidth={2}
-              className="size-4"
+              className="size-4 text-primary"
             />
           </Button>
         </div>
