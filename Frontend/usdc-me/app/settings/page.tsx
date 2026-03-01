@@ -101,9 +101,42 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-12">
-        <Skeleton className="mb-4 h-8 w-32" />
-        <Skeleton className="h-64 w-full" />
+      <div className="mx-auto max-w-lg space-y-6 px-4 py-12">
+        {/* Page header */}
+        <div className="mb-6 space-y-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+
+        {/* Card 1 skeleton — Change Password */}
+        <div className="rounded-xl border p-6 space-y-5">
+          <div className="space-y-1.5">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-10 w-full rounded-md" />
+            </div>
+          ))}
+          <Skeleton className="h-10 w-36 rounded-md" />
+        </div>
+
+        {/* Card 2 skeleton — Change Recovery Password */}
+        <div className="rounded-xl border p-6 space-y-5">
+          <div className="space-y-1.5">
+            <Skeleton className="h-5 w-52" />
+            <Skeleton className="h-4 w-full max-w-xs" />
+          </div>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-10 w-full rounded-md" />
+            </div>
+          ))}
+          <Skeleton className="h-10 w-48 rounded-md" />
+        </div>
       </div>
     )
   }

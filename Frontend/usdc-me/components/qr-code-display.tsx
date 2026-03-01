@@ -62,7 +62,7 @@ export function QRCodeDisplay({ handle }: QRCodeDisplayProps) {
                 </>
               ) : (
                 <>
-                  <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} className="size-4" />
+                  <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} className="size-4 text-primary" />
                   Copy link
                 </>
               )}

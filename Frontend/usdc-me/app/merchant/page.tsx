@@ -68,8 +68,37 @@ export default function MerchantPage() {
   if (authLoading || loadingMerchants) {
     return (
       <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        {/* Page header */}
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-44" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+
+        {/* Registration / dashboard card */}
+        <div className="rounded-xl border p-6 space-y-5">
+          <div className="space-y-1.5">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+          {/* Store name field */}
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-10 w-full rounded-md" />
+          </div>
+          {/* Receiving wallet field */}
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-10 w-full rounded-lg" />
+          </div>
+          {/* Callback URL field */}
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-10 w-full rounded-md" />
+          </div>
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+
+        <Skeleton className="h-10 w-36 rounded-md" />
       </div>
     )
   }

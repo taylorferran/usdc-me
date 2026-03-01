@@ -192,7 +192,7 @@ export function TransactionList({ userAddress }: TransactionListProps) {
             disabled={isLoading}
             aria-label="Refresh transactions"
           >
-            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4" />
+            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4 text-primary" />
           </Button>
         </div>
       </CardHeader>
@@ -220,7 +220,7 @@ export function TransactionList({ userAddress }: TransactionListProps) {
               <EmptyState label="No payments received yet — share your QR code!" />
             ) : (
               <ScrollArea className="h-64">
-                <div className="divide-y">
+                <div className="divide-y pr-3">
                   {received.map((t) => (
                     <TransactionRow key={t.id} tx={t} direction="received" />
                   ))}
@@ -236,7 +236,7 @@ export function TransactionList({ userAddress }: TransactionListProps) {
               <EmptyState label="No payments sent yet." />
             ) : (
               <ScrollArea className="h-64">
-                <div className="divide-y">
+                <div className="divide-y pr-3">
                   {sent.map((t) => (
                     <TransactionRow key={t.id} tx={t} direction="sent" />
                   ))}

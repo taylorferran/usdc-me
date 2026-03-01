@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon, WalletAdd01Icon } from "@hugeicons/core-free-icons"
 import {
   Dialog,
   DialogContent,
@@ -52,6 +52,7 @@ export function AddFundsButton() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" className="gap-2">
+          <HugeiconsIcon icon={WalletAdd01Icon} strokeWidth={2} className="size-4 text-primary" />
           Add Funds
         </Button>
       </DialogTrigger>

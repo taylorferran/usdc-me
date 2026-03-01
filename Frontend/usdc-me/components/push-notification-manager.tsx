@@ -121,7 +121,7 @@ export function PushNotificationManager() {
         <HugeiconsIcon
           icon={isSubscribed ? NotificationOff01Icon : Notification01Icon}
           strokeWidth={2}
-          className="size-4"
+          className="size-4 text-primary"
         />
       )}
       {isSubscribed ? "Notifications on" : "Notify me"}

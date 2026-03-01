@@ -140,7 +140,7 @@ export function QrScannerDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" className="gap-2">
-          <HugeiconsIcon icon={QrCodeScanIcon} strokeWidth={2} className="size-4" />
+          <HugeiconsIcon icon={QrCodeScanIcon} strokeWidth={2} className="size-4 text-primary" />
           Scan QR
         </Button>
       </DialogTrigger>

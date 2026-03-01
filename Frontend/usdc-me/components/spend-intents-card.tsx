@@ -179,7 +179,7 @@ export function SpendIntentsCard() {
             disabled={isLoading}
             aria-label="Refresh intents"
           >
-            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4" />
+            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4 text-primary" />
           </Button>
         </div>
       </CardHeader>
@@ -194,7 +194,7 @@ export function SpendIntentsCard() {
           </p>
         ) : (
           <ScrollArea className="h-56">
-            <div className="divide-y">
+            <div className="divide-y pr-3">
               {intents.map((intent) => (
                 <IntentRow key={intent.id} intent={intent} />
               ))}

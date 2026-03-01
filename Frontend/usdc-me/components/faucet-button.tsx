@@ -11,6 +11,8 @@ import { deposit } from "@/lib/signing"
 import { arcTestnet, ARC_USDC_ADDRESS } from "@/lib/wallet"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { TestTube01Icon } from "@hugeicons/core-free-icons"
 
 type Step = "idle" | "transferring" | "confirming" | "depositing" | "done"
 
@@ -91,10 +93,14 @@ export function FaucetButton() {
       size="sm"
       onClick={handleFund}
       disabled={!canFund}
-      className="gap-2"
-    >
-      {isWorking && <Spinner className="size-3.5" />}
-      {STEP_LABELS[step]}
+    className="gap-2"
+  >
+    {isWorking ? (
+      <Spinner className="size-3.5" />
+    ) : (
+      <HugeiconsIcon icon={TestTube01Icon} strokeWidth={2} className="size-3.5 text-primary" />
+    )}
+    {STEP_LABELS[step]}
     </Button>
   )
 }

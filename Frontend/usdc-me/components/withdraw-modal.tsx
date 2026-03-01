@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon, BankIcon } from "@hugeicons/core-free-icons"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
@@ -209,8 +209,11 @@ export function WithdrawModal() {
     return (
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>
-          <Button variant="outline">Withdraw</Button>
-        </DrawerTrigger>
+        <Button variant="outline" className="gap-2">
+          <HugeiconsIcon icon={BankIcon} strokeWidth={2} className="size-4 text-primary" />
+          Withdraw
+        </Button>
+      </DrawerTrigger>
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>Withdraw USDC</DrawerTitle>
@@ -233,7 +236,10 @@ export function WithdrawModal() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">Withdraw</Button>
+        <Button variant="outline" className="gap-2">
+          <HugeiconsIcon icon={BankIcon} strokeWidth={2} className="size-4 text-primary" />
+          Withdraw
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

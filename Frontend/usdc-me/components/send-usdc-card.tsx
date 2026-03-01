@@ -200,7 +200,7 @@ export function SendUsdcCard() {
               Sent ${lastTx.amount} USDC{lastTx.handle ? ` to @${lastTx.handle}` : ""}
             </p>
             <p className="text-muted-foreground font-mono text-xs mt-0.5 break-all flex items-center gap-1">
-              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3 shrink-0" />
+              <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="size-3 shrink-0 text-primary" />
               {lastTx.to}
             </p>
           </div>

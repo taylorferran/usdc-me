@@ -104,7 +104,7 @@ export function BalanceDisplay() {
             disabled={isLoading}
             aria-label="Refresh balance"
           >
-            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4" />
+            <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} className="size-4 text-primary" />
           </Button>
         </div>
       </CardHeader>
@@ -132,7 +132,7 @@ export function BalanceDisplay() {
                       <HugeiconsIcon
                         icon={copied ? Tick01Icon : Copy01Icon}
                         strokeWidth={2}
-                        className={`size-3.5 ${copied ? "text-green-500" : ""}`}
+                        className={`size-3.5 ${copied ? "text-green-500" : "text-primary"}`}
                       />
                     </Button>
                   </TooltipTrigger>

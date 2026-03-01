@@ -61,15 +61,18 @@ function DashboardContent() {
   if (!user) return null
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
+    <div className="mx-auto max-w-5xl space-y-4 px-4 py-6 md:space-y-6 md:py-8">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground text-sm">@{user.handle}</p>
+          {/* Hide verbose title on mobile — the handle is sufficient context */}
+          <h1 className="text-2xl font-bold sm:block">Dashboard</h1>
+          <p className="text-base font-semibold sm:text-sm sm:font-normal sm:text-muted-foreground">
+            @{user.handle}
+          </p>
         </div>
         {/* Action buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PushNotificationManager />
           <FaucetButton />
           <QrScannerDialog />
@@ -80,20 +83,37 @@ function DashboardContent() {
 
       <Separator />
 
-      {/* Top row — balance + QR */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <BalanceDisplay />
-        <QRCodeDisplay handle={user.handle} />
-      </div>
+      {/*
+        Single responsive grid.
+        Mobile (1-col): QR → Balance → Send → Transactions → Spend Intents
+        Desktop (2-col): Balance | QR  /  Send | Intents  /  Transactions (full-width)
+      */}
+      <div className="grid gap-4 md:grid-cols-2 md:gap-6">
+        {/* Payment link — 1st on mobile, right col row 1 on desktop */}
+        <div className="order-1 md:order-2">
+          <QRCodeDisplay handle={user.handle} />
+        </div>
 
-      {/* Middle row — send + intents */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <SendUsdcCard />
-        <SpendIntentsCard />
-      </div>
+        {/* Balance — 2nd on mobile, left col row 1 on desktop */}
+        <div className="order-2 md:order-1">
+          <BalanceDisplay />
+        </div>
 
-      {/* Transactions — full width */}
-      <TransactionList userAddress={user.address} />
+        {/* Send — 3rd on both; left col row 2 on desktop */}
+        <div className="order-3">
+          <SendUsdcCard />
+        </div>
+
+        {/* Transactions — 4th on mobile (before intents), full-width row 3 on desktop */}
+        <div className="order-4 md:order-5 md:col-span-2">
+          <TransactionList userAddress={user.address} />
+        </div>
+
+        {/* Spend Intents — last on mobile, right col row 2 on desktop */}
+        <div className="order-5 md:order-4">
+          <SpendIntentsCard />
+        </div>
+      </div>
     </div>
   )
 }
