@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next"
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "USDC.me — Instant USDC Payments",
-    short_name: "USDC.me",
+    name: "USDC-ME — Instant USDC Payments",
+    short_name: "USDC-ME",
     description: "One handle. Instant USDC. Zero gas.",
     start_url: "/",
     display: "standalone",

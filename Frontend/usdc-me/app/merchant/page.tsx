@@ -302,7 +302,7 @@ export default function MerchantPage() {
           Back to Merchant Dashboard
         </Button>
       ) : (
-        <Button variant="outline" asChild>
+        <Button variant="default" asChild>
           <Link href="/dashboard">Back to Dashboard</Link>
         </Button>
       )}

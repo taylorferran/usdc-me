@@ -33,7 +33,7 @@ export default function Header() {
         <Link href="/" className="flex items-center gap-2">
           <Image
             src="/icons/logo.png"
-            alt="USDC.me logo"
+            alt="USDC-ME logo"
             width={28}
             height={28}
             className="size-7"

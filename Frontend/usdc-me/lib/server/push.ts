@@ -2,7 +2,7 @@ import webpush from "web-push"
 import { supabaseAdmin } from "@/lib/server/supabase"
 
 webpush.setVapidDetails(
-  "mailto:noreply@usdc.me",
+  "mailto:noreply@usdc-me.xyz",
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
   process.env.VAPID_PRIVATE_KEY!
 )

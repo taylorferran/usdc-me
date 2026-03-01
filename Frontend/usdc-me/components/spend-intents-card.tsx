@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { RefreshIcon, CheckmarkCircle01Icon, Clock01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import * as api from "@/lib/api"
 import type { Intent } from "@/lib/api"
@@ -80,23 +81,57 @@ export function SpendIntentsCard() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSettling, setIsSettling] = useState(false)
   const [lastSettlement, setLastSettlement] = useState<SettlementResult | null>(null)
+  const [isLive, setIsLive] = useState(false)
+  const addressRef = useRef(user?.address)
+  addressRef.current = user?.address
 
-  const fetchIntents = useCallback(async () => {
-    if (!user?.address) return
-    setIsLoading(true)
+  const fetchIntents = useCallback(async (silent = false) => {
+    if (!addressRef.current) return
+    if (!silent) setIsLoading(true)
     try {
-      const data = await api.getIntents(user.address)
+      const data = await api.getIntents(addressRef.current)
       setIntents(data)
     } catch {
       // silently fail
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
-  }, [user?.address])
+  }, [])
 
+  // Initial load
   useEffect(() => {
     fetchIntents()
-  }, [fetchIntents])
+  }, [fetchIntents, user?.address])
+
+  // Supabase Realtime subscription
+  useEffect(() => {
+    if (!user?.address) return
+
+    const channel = supabase
+      .channel(`intents:${user.address}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions" },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as { from_address?: string; to_address?: string } | null
+          const addr = addressRef.current?.toLowerCase()
+          if (
+            row?.from_address?.toLowerCase() === addr ||
+            row?.to_address?.toLowerCase() === addr
+          ) {
+            fetchIntents(true)
+          }
+        }
+      )
+      .subscribe((status) => {
+        setIsLive(status === "SUBSCRIBED")
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+      setIsLive(false)
+    }
+  }, [user?.address, fetchIntents])
 
   const pendingCount = intents.filter((i) => i.status === "pending").length
 
@@ -130,11 +165,17 @@ export function SpendIntentsCard() {
             {pendingCount > 0 && (
               <Badge className="text-xs">{pendingCount} pending</Badge>
             )}
+            {isLive && (
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+              </span>
+            )}
           </div>
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={fetchIntents}
+            onClick={() => fetchIntents()}
             disabled={isLoading}
             aria-label="Refresh intents"
           >

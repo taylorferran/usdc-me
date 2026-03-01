@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -106,15 +106,18 @@ interface TransactionListProps {
 export function TransactionList({ userAddress }: TransactionListProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLive, setIsLive] = useState(false)
+  const userAddressRef = useRef(userAddress)
+  userAddressRef.current = userAddress
 
-  const fetchTransactions = useCallback(async () => {
-    if (!userAddress) return
-    setIsLoading(true)
+  const fetchTransactions = useCallback(async (silent = false) => {
+    if (!userAddressRef.current) return
+    if (!silent) setIsLoading(true)
     try {
       const { data } = await supabase
         .from("transactions")
         .select("id, type, from_address, to_address, amount, status, tx_hash, network, created_at")
-        .or(`from_address.eq.${userAddress},to_address.eq.${userAddress}`)
+        .or(`from_address.eq.${userAddressRef.current},to_address.eq.${userAddressRef.current}`)
         .order("created_at", { ascending: false })
         .limit(50)
 
@@ -122,13 +125,44 @@ export function TransactionList({ userAddress }: TransactionListProps) {
     } catch {
       // silently fail
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
-  }, [userAddress])
+  }, [])
 
+  // Initial load
   useEffect(() => {
     fetchTransactions()
-  }, [fetchTransactions])
+  }, [fetchTransactions, userAddress])
+
+  // Supabase Realtime subscription
+  useEffect(() => {
+    if (!userAddress) return
+
+    const channel = supabase
+      .channel(`transactions-list:${userAddress}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions" },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as Partial<Transaction> | null
+          const addr = userAddressRef.current.toLowerCase()
+          if (
+            row?.from_address?.toLowerCase() === addr ||
+            row?.to_address?.toLowerCase() === addr
+          ) {
+            fetchTransactions(true)
+          }
+        }
+      )
+      .subscribe((status) => {
+        setIsLive(status === "SUBSCRIBED")
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+      setIsLive(false)
+    }
+  }, [userAddress, fetchTransactions])
 
   const addr = userAddress.toLowerCase()
   const received = transactions.filter(
@@ -142,11 +176,19 @@ export function TransactionList({ userAddress }: TransactionListProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Transactions</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Transactions</CardTitle>
+            {isLive && (
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+              </span>
+            )}
+          </div>
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={fetchTransactions}
+            onClick={() => fetchTransactions()}
             disabled={isLoading}
             aria-label="Refresh transactions"
           >

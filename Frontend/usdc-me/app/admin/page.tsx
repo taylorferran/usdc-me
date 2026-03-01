@@ -40,6 +40,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
 import { getIntentsPaginated } from "@/lib/api"
 import type { Intent } from "@/lib/api"
 import { formatUsdc } from "@/lib/format"
@@ -144,32 +145,40 @@ export default function AdminPage() {
   const [stats, setStats] = useState({ total: 0, pending: 0, settled: 0, failed: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [isSettling, setIsSettling] = useState(false)
+  const [isLive, setIsLive] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [sortField, setSortField] = useState<SortField>("timestamp")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [secondsLeft, setSecondsLeft] = useState(0)
 
+  // Refs so realtime callback always reads current values without re-subscribing
+  const pageRef = useRef(page)
+  pageRef.current = page
+  const statusFilterRef = useRef(statusFilter)
+  statusFilterRef.current = statusFilter
+
   const nextSettleAtRef = useRef(0)
   const isAutoSettlingRef = useRef(false)
   const handleSettleRef = useRef<(() => Promise<void>) | undefined>(undefined)
 
-  const fetchIntents = useCallback(async (targetPage = page) => {
-    setIsLoading(true)
+  const fetchIntents = useCallback(async (targetPage?: number, silent = false) => {
+    const p = targetPage ?? pageRef.current
+    if (!silent) setIsLoading(true)
     try {
       const result = await getIntentsPaginated({
-        status: statusFilter === "all" ? undefined : statusFilter,
-        page: targetPage,
+        status: statusFilterRef.current === "all" ? undefined : statusFilterRef.current,
+        page: p,
         limit: PAGE_SIZE,
       })
       setIntents(result.data)
       setTotalCount(result.total)
       setTotalPages(result.totalPages)
     } catch {
-      toast.error("Failed to load intents")
+      if (!silent) toast.error("Failed to load intents")
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
-  }, [page, statusFilter])
+  }, [])
 
   // Fetch overall counts for stat cards (unfiltered)
   const fetchStats = useCallback(async () => {
@@ -195,17 +204,39 @@ export default function AdminPage() {
   useEffect(() => {
     setPage(1)
     fetchIntents(1)
-  }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [statusFilter, fetchIntents])
 
   // Fetch when page changes (but not on filter change — handled above)
   useEffect(() => {
     fetchIntents(page)
-  }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, fetchIntents])
 
-  // Stats are fetched once and refreshed after settle
+  // Stats on mount
   useEffect(() => {
     fetchStats()
   }, [fetchStats])
+
+  // Supabase Realtime — watch all transaction changes platform-wide
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions" },
+        () => {
+          fetchIntents(undefined, true)
+          fetchStats()
+        }
+      )
+      .subscribe((status) => {
+        setIsLive(status === "SUBSCRIBED")
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+      setIsLive(false)
+    }
+  }, [fetchIntents, fetchStats])
 
   const handleSettle = useCallback(async () => {
     setIsSettling(true)
@@ -227,7 +258,7 @@ export default function AdminPage() {
           : `Settled ${body.settled} intent(s)`
         toast.success(msg)
       }
-      await Promise.all([fetchIntents(page), fetchStats()])
+      await Promise.all([fetchIntents(page, false), fetchStats()])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Settlement failed")
     } finally {
@@ -312,7 +343,15 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           <HugeiconsIcon icon={SecurityCheckIcon} strokeWidth={2} className="text-primary size-6" />
           <div>
-            <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+              {isLive && (
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+                </span>
+              )}
+            </div>
             <p className="text-muted-foreground text-sm">All spend intents across the platform</p>
           </div>
         </div>
@@ -325,7 +364,7 @@ export default function AdminPage() {
               {formatCountdown(secondsLeft)}
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={() => { fetchIntents(page); fetchStats() }} disabled={isLoading} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => { fetchIntents(page, false); fetchStats() }} disabled={isLoading} className="gap-2">
             <HugeiconsIcon
               icon={RefreshIcon}
               strokeWidth={2}

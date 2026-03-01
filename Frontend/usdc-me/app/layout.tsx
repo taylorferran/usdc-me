@@ -20,13 +20,13 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "USDC.me — Instant USDC Payments",
+  title: "USDC-ME — Instant USDC Payments",
   description: "One handle. Instant USDC. Zero gas.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "USDC.me",
+    title: "USDC-ME",
   },
   formatDetection: {
     telephone: false,

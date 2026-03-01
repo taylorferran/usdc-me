@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -43,12 +43,16 @@ function truncate(addr: string) {
   return `${addr.slice(0, 10)}…${addr.slice(-8)}`
 }
 
+const POLL_INTERVAL_MS = 30_000
+
 export function BalanceDisplay() {
   const { user } = useAuth()
   const [balance, setBalance] = useState<BalanceResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const addressRef = useRef(user?.address)
+  addressRef.current = user?.address
 
   async function handleCopyAddress() {
     if (!user?.address) return
@@ -57,23 +61,32 @@ export function BalanceDisplay() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const fetchBalance = useCallback(async () => {
-    if (!user?.address) return
-    setIsLoading(true)
-    setError(null)
+  const fetchBalance = useCallback(async (silent = false) => {
+    if (!addressRef.current) return
+    if (!silent) setIsLoading(true)
+    if (!silent) setError(null)
     try {
-      const data = await api.getBalance(user.address)
+      const data = await api.getBalance(addressRef.current)
       setBalance(data)
+      if (!silent) setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load balance")
+      if (!silent) setError(err instanceof Error ? err.message : "Failed to load balance")
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
-  }, [user?.address])
+  }, [])
 
+  // Initial load
   useEffect(() => {
     fetchBalance()
-  }, [fetchBalance])
+  }, [fetchBalance, user?.address])
+
+  // Poll every 30s — balance comes from an external API, not Supabase
+  useEffect(() => {
+    if (!user?.address) return
+    const id = setInterval(() => fetchBalance(true), POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [user?.address, fetchBalance])
 
   const pending = balance
     ? formatUsdc(parseFloat(balance.gateway.total) - parseFloat(balance.gateway.available))
@@ -87,7 +100,7 @@ export function BalanceDisplay() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={fetchBalance}
+            onClick={() => fetchBalance()}
             disabled={isLoading}
             aria-label="Refresh balance"
           >
