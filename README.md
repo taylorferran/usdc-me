@@ -88,7 +88,7 @@ The app runs at `http://localhost:3000`.
 
 ### Merchant Demo
 
-A standalone demo shop is included to demonstrate the merchant integration:
+A standalone demo shop is included to demonstrate the merchant integration. Try it live at [https://usdc-me-merchant-demo.vercel.app/](https://usdc-me-merchant-demo.vercel.app/), or run it locally:
 
 ```bash
 cd merchant-demo
