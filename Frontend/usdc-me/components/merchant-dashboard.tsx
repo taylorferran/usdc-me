@@ -11,26 +11,35 @@ interface MerchantDashboardProps {
   merchants: MerchantAccount[]
   userHandle: string
   onRegisterNew: () => void
+  onShowSetup?: () => void
 }
 
 export function MerchantDashboard({
   merchants,
   userHandle,
   onRegisterNew,
+  onShowSetup,
 }: MerchantDashboardProps) {
   const [selectedId, setSelectedId] = useState(merchants[0]?.id)
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Merchant Dashboard</h1>
           <p className="text-muted-foreground text-sm">@{userHandle}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={onRegisterNew}>
-          + New Store
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onShowSetup && (
+            <Button variant="outline" size="sm" onClick={onShowSetup}>
+              Setup Guide
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onRegisterNew}>
+            + New Store
+          </Button>
+        </div>
       </div>
 
       <Separator />

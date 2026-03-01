@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card"
 import { Alert } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
+import { CodeBlock } from "@/components/ui/code-block"
 
 const FRONTEND_URL =
   process.env.NEXT_PUBLIC_FRONTEND_URL ?? "https://www.usdc-me.xyz"
@@ -43,6 +44,9 @@ export default function MerchantPage() {
   // Just-registered merchant (show API key once)
   const [justRegistered, setJustRegistered] = useState<api.MerchantResponse | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+
+  // Setup guide (re-accessible from dashboard, no API key shown)
+  const [showSetupGuide, setShowSetupGuide] = useState(false)
 
   const fetchMerchants = useCallback(async () => {
     try {
@@ -184,7 +188,6 @@ export default function MerchantPage() {
               {justRegistered.api_key}
             </div>
             <Button
-              variant="outline"
               size="sm"
               className="w-full"
               onClick={() => copy(justRegistered.api_key, "apiKey")}
@@ -203,17 +206,12 @@ export default function MerchantPage() {
               Call this from your server when a customer checks out.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <pre className="bg-muted overflow-auto rounded-lg p-3 text-xs leading-relaxed">
-              {createPaymentSnippet}
-            </pre>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copy(createPaymentSnippet, "createPayment")}
-            >
-              {copied === "createPayment" ? "Copied!" : "Copy Code"}
-            </Button>
+          <CardContent>
+            <CodeBlock
+              language="javascript"
+              filename="create-payment.js"
+              code={createPaymentSnippet}
+            />
           </CardContent>
         </Card>
 
@@ -224,9 +222,11 @@ export default function MerchantPage() {
               When a customer pays, we POST to your callback URL:
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <pre className="bg-muted overflow-auto rounded-lg p-3 text-xs leading-relaxed">
-{`{
+          <CardContent className="space-y-3">
+            <CodeBlock
+              language="json"
+              filename="webhook-payload.json"
+              code={`{
   "event": "payment.completed",
   "payment_id": "pay_abc123",
   "amount": "10.00",
@@ -234,18 +234,97 @@ export default function MerchantPage() {
   "intent_id": "uuid",
   "timestamp": "2025-01-15T10:30:45.123Z"
 }`}
-            </pre>
-            <p className="text-muted-foreground mt-3 text-xs">
+            />
+            <p className="text-muted-foreground text-xs">
               Or poll{" "}
-              <code className="text-primary">
-                GET /api/payments/:paymentId
-              </code>{" "}
+              <code className="text-primary">GET /api/payments/:paymentId</code>{" "}
               for status changes.
             </p>
           </CardContent>
         </Card>
 
         <Button onClick={handleDoneSetup}>Go to Merchant Dashboard</Button>
+      </div>
+    )
+  }
+
+  // ── Setup guide (re-accessible from dashboard, no live API key) ──
+  if (showSetupGuide) {
+    const placeholderSnippet = `fetch("${FRONTEND_URL}/api/payments/create", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": "YOUR_API_KEY"
+  },
+  body: JSON.stringify({
+    amount: "10",
+    description: "Your product description",
+    redirect_url: "https://your-site.com/thank-you"
+  })
+})
+.then(res => res.json())
+.then(data => {
+  // data.payment_id  — use in widget or QR code
+  // data.payment_url — direct link for customer
+  console.log(data);
+});`
+
+    return (
+      <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Setup Guide</h1>
+            <p className="text-muted-foreground text-sm">Integration docs for your store</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowSetupGuide(false)}>
+            ← Back to Dashboard
+          </Button>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Create a Payment Request</CardTitle>
+            <CardDescription>
+              Call this from your server when a customer checks out. Replace{" "}
+              <code className="text-primary">YOUR_API_KEY</code> with your secret key.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CodeBlock
+              language="javascript"
+              filename="create-payment.js"
+              code={placeholderSnippet}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Webhook Callback</CardTitle>
+            <CardDescription>
+              When a customer pays, we POST to your callback URL:
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <CodeBlock
+              language="json"
+              filename="webhook-payload.json"
+              code={`{
+  "event": "payment.completed",
+  "payment_id": "pay_abc123",
+  "amount": "10.00",
+  "payer_address": "0x...",
+  "intent_id": "uuid",
+  "timestamp": "2025-01-15T10:30:45.123Z"
+}`}
+            />
+            <p className="text-muted-foreground text-xs">
+              Or poll{" "}
+              <code className="text-primary">GET /api/payments/:paymentId</code>{" "}
+              for status changes.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -257,6 +336,7 @@ export default function MerchantPage() {
         merchants={merchants}
         userHandle={user.handle}
         onRegisterNew={() => setShowRegister(true)}
+        onShowSetup={() => setShowSetupGuide(true)}
       />
     )
   }
