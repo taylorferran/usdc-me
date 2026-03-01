@@ -41,6 +41,7 @@ export const metadata: Metadata = {
   },
 }
 
+
 export const viewport: Viewport = {
   themeColor: "#2563eb",
   width: "device-width",
@@ -56,6 +57,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={raleway.variable}>
+      <meta name="google-site-verification" content="4rRsfuxM-jtfIMpjGYirpSCLnIRO1yMmyXQkM8Gc_Ls" />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
